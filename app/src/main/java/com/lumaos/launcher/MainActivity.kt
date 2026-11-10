@@ -438,6 +438,9 @@ private fun LumaLauncher(
             when (page) {
                 1 -> AppLibrary(
                     apps = apps,
+                    gridColumns = gridColumns,
+                    iconSize = iconSize,
+                    showAppLabels = showAppLabels,
                     query = searchQuery,
                     sortDescending = librarySortDescending,
                     onToggleSort = { librarySortDescending = !librarySortDescending; prefs.edit().putBoolean("library_sort_descending", librarySortDescending).apply() },
@@ -1176,6 +1179,9 @@ private fun FolderIcon(
 @Composable
 private fun AppLibrary(
     apps: List<LauncherApp>,
+    gridColumns: Int,
+    iconSize: Int,
+    showAppLabels: Boolean,
     badgeCounts: Map<String, Int>,
     query: String,
     sortDescending: Boolean,
@@ -1228,14 +1234,14 @@ private fun AppLibrary(
         }
         Spacer(Modifier.height(12.dp))
         LazyVerticalGrid(
-            columns = GridCells.Fixed(4),
+            columns = GridCells.Fixed(gridColumns),
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(bottom = 28.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             items(filtered, key = { it.packageName }) { app ->
-                AppIcon(app = app, onClick = { onLaunchApp(app.packageName) }, badgeCount = badgeCounts[app.packageName] ?: 0)
+                AppIcon(app = app, onClick = { onLaunchApp(app.packageName) }, iconSize = iconSize, showLabel = showAppLabels, badgeCount = badgeCounts[app.packageName] ?: 0)
             }
         }
     }
