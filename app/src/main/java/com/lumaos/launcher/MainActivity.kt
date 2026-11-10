@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.drawable.Drawable
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -119,7 +120,8 @@ class MainActivity : ComponentActivity() {
                     folders = folders,
                     onLaunchApp = ::launchApp,
                     onSaveLayout = ::saveHomeOrder,
-                    onSaveFolders = ::saveFolders
+                    onSaveFolders = ::saveFolders,
+                    onOpenSystemSettings = ::openSystemSettings
                 )
             }
         }
@@ -167,6 +169,24 @@ class MainActivity : ComponentActivity() {
         }
         getSharedPreferences("luma_home_layout", MODE_PRIVATE)
             .edit().putString("folders", array.toString()).apply()
+    }
+
+    private fun openSystemSettings(section: String) {
+        val action = when (section) {
+            "wifi" -> Settings.ACTION_WIFI_SETTINGS
+            "bluetooth" -> Settings.ACTION_BLUETOOTH_SETTINGS
+            "airplane" -> Settings.ACTION_AIRPLANE_MODE_SETTINGS
+            "location" -> Settings.ACTION_LOCATION_SOURCE_SETTINGS
+            "display" -> Settings.ACTION_DISPLAY_SETTINGS
+            "sound" -> Settings.ACTION_SOUND_SETTINGS
+            "battery" -> Settings.ACTION_BATTERY_SAVER_SETTINGS
+            else -> Settings.ACTION_SETTINGS
+        }
+        try {
+            startActivity(Intent(action))
+        } catch (_: Exception) {
+            startActivity(Intent(Settings.ACTION_SETTINGS))
+        }
     }
 
     private fun refreshInstalledApps() {
@@ -225,9 +245,11 @@ private fun LumaLauncher(
     folders: List<AppFolder>,
     onLaunchApp: (String) -> Unit,
     onSaveLayout: (List<String>) -> Unit,
-    onSaveFolders: (List<AppFolder>) -> Unit
+    onSaveFolders: (List<AppFolder>) -> Unit,
+    onOpenSystemSettings: (String) -> Unit
 ) {
     var showLibrary by remember { mutableStateOf(false) }
+    var showControlCenter by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var clock by remember { mutableStateOf(currentTime()) }
     val background = Brush.verticalGradient(
@@ -241,22 +263,32 @@ private fun LumaLauncher(
         }
     }
 
-    BackHandler(enabled = showLibrary) {
-        showLibrary = false
-        searchQuery = ""
+    BackHandler(enabled = showLibrary || showControlCenter) {
+        if (showLibrary) {
+            showLibrary = false
+            searchQuery = ""
+        } else {
+            showControlCenter = false
+        }
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(background)
-            .pointerInput(showLibrary) {
+            .pointerInput(showLibrary, showControlCenter) {
                 var drag = 0f
                 detectVerticalDragGestures(
                     onVerticalDrag = { _, amount -> drag += amount },
                     onDragEnd = {
-                        if (!showLibrary && drag < -65f) showLibrary = true
-                        if (showLibrary && drag > 65f) showLibrary = false
+                        if (!showLibrary && !showControlCenter && drag < -65f) showLibrary = true
+                        else if (!showLibrary && !showControlCenter && drag > 65f) showControlCenter = true
+                        else if (showLibrary && drag > 65f) {
+                            showLibrary = false
+                            searchQuery = ""
+                        } else if (showControlCenter && drag < -65f) {
+                            showControlCenter = false
+                        }
                         drag = 0f
                     }
                 )
@@ -268,26 +300,34 @@ private fun LumaLauncher(
             .padding(horizontal = 22.dp)
     ) {
         AnimatedContent(
-            targetState = showLibrary,
+            targetState = when {
+                showLibrary -> 1
+                showControlCenter -> 2
+                else -> 0
+            },
             transitionSpec = { fadeIn() togetherWith fadeOut() },
             label = "launcher_pages"
-        ) { libraryOpen ->
-            if (libraryOpen) {
-                AppLibrary(
+        ) { page ->
+            when (page) {
+                1 -> AppLibrary(
                     apps = apps,
                     query = searchQuery,
                     onQueryChange = { searchQuery = it },
                     onLaunchApp = onLaunchApp,
                     onBack = { showLibrary = false; searchQuery = "" }
                 )
-            } else {
-                HomeScreen(
+                2 -> ControlCenter(
+                    onBack = { showControlCenter = false },
+                    onOpenSystemSettings = onOpenSystemSettings
+                )
+                else -> HomeScreen(
                     apps = apps,
                     homeOrder = homeOrder,
                     folders = folders,
                     clock = clock,
                     onLaunchApp = onLaunchApp,
                     onOpenLibrary = { showLibrary = true },
+                    onOpenControlCenter = { showControlCenter = true },
                     onSaveLayout = onSaveLayout,
                     onSaveFolders = onSaveFolders
                 )
@@ -304,17 +344,17 @@ private fun HomeScreen(
     clock: String,
     onLaunchApp: (String) -> Unit,
     onOpenLibrary: () -> Unit,
+    onOpenControlCenter: () -> Unit,
     onSaveLayout: (List<String>) -> Unit,
     onSaveFolders: (List<AppFolder>) -> Unit
 ) {
     val appByPackage = apps.associateBy { it.packageName }
     val folderById = folders.associateBy { "folder:${it.id}" }
     val folderMembers = folders.flatMap { it.packages }.toSet()
-    val visibleOrder = (homeOrder + apps.map { it.packageName })
-        .distinct()
-        .filter { token ->
-            token.startsWith("folder:") || (token !in folderMembers && appByPackage.containsKey(token))
-        }
+    val visibleOrder = homeOrder.filter { token ->
+        (token.startsWith("folder:") && folderById.containsKey(token)) ||
+            (!token.startsWith("folder:") && token !in folderMembers && appByPackage.containsKey(token))
+    }
     val tiles = visibleOrder.mapNotNull { token ->
         if (token.startsWith("folder:")) {
             folderById[token]?.let { HomeTile(token, folder = it) }
@@ -348,7 +388,7 @@ private fun HomeScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("LumaOS", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-            Text("●  ●  ●  ▰", color = Color.White.copy(alpha = 0.85f), fontSize = 11.sp)
+            Text("Control Center", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenControlCenter))
         }
         Spacer(Modifier.height(30.dp))
         Text(clock, color = Color.White, fontSize = 58.sp, fontWeight = FontWeight.Light)
@@ -416,7 +456,7 @@ private fun HomeScreen(
         }
         Spacer(Modifier.height(12.dp))
         Text(
-            "Swipe up for App Library • Long-press an icon to arrange",
+            "Swipe up for App Library • Swipe down for Control Center",
             modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenLibrary),
             color = Color(0xFFBAC6DE),
             fontSize = 11.sp,
@@ -456,7 +496,7 @@ private fun HomeScreen(
             title = { Text("Choose another app") },
             text = {
                 Column {
-                    apps.filter { it.packageName != folderSource?.packageName && it.packageName !in folderMembers }
+                    apps.filter { it.packageName != folderSource?.packageName && it.packageName !in folderMembers && it.packageName in visibleOrder }
                         .take(12).forEach { app ->
                             TextButton(onClick = {
                                 newFolderName = "Folder"
@@ -547,6 +587,91 @@ private fun HomeScreen(
                 }) { Text("Unpack") }
             }
         )
+    }
+}
+
+
+@Composable
+private fun ControlCenter(
+    onBack: () -> Unit,
+    onOpenSystemSettings: (String) -> Unit
+) {
+    val controls = listOf(
+        Triple("Wi-Fi", "📶", "Manage wireless networks") to "wifi",
+        Triple("Bluetooth", "ᛒ", "Manage connected devices") to "bluetooth",
+        Triple("Airplane mode", "✈", "Airplane mode settings") to "airplane",
+        Triple("Location", "⌖", "Location access settings") to "location",
+        Triple("Display", "☼", "Brightness and display settings") to "display",
+        Triple("Sound", "♫", "Sound and vibration settings") to "sound",
+        Triple("Battery", "▰", "Battery and power settings") to "battery",
+        Triple("All settings", "⚙", "Open Android settings") to "settings"
+    )
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Control Center", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+            Text("Done", color = Color(0xFFB9C9FF), modifier = Modifier.clickable(onClick = onBack))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Quick access to your device controls",
+            color = Color(0xFFD4DCEE),
+            fontSize = 13.sp
+        )
+        Spacer(Modifier.height(22.dp))
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(bottom = 18.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(controls) { item ->
+                val control = item.first
+                ControlTile(
+                    symbol = control.second,
+                    title = control.first,
+                    subtitle = control.third,
+                    onClick = { onOpenSystemSettings(item.second) }
+                )
+            }
+        }
+        Text(
+            "Protected switches are managed by Android. Tap a tile to open the matching system settings.",
+            color = Color(0xFFBAC6DE),
+            fontSize = 11.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+        )
+    }
+}
+
+@Composable
+private fun ControlTile(
+    symbol: String,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(118.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .background(Color.White.copy(alpha = 0.14f))
+            .clickable(onClick = onClick)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(symbol, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Medium)
+        Column {
+            Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = Color(0xFFD4DCEE), fontSize = 10.sp, maxLines = 1)
+        }
     }
 }
 
