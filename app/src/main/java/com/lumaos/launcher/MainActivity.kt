@@ -14,7 +14,10 @@ import android.graphics.Canvas as AndroidCanvas
 import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.provider.Settings
-import androidx.activity.ComponentActivity
+import android.widget.Toast
+import androidx.fragment.app.FragmentActivity
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.activity.compose.BackHandler
 import androidx.core.content.ContextCompat
@@ -122,7 +125,7 @@ private data class HomeTile(
     val folder: AppFolder? = null
 )
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private var launcherApps by mutableStateOf<List<LauncherApp>>(emptyList())
     private var homeOrder by mutableStateOf<List<String>>(emptyList())
     private var folders by mutableStateOf<List<AppFolder>>(emptyList())
@@ -369,6 +372,45 @@ private fun LumaLauncher(
     var customWallpaperUri by remember { mutableStateOf(prefs.getString("custom_wallpaper_uri", null)) }
     var hiddenPackages by remember { mutableStateOf(prefs.getStringSet("hidden_packages", emptySet())?.toSet() ?: emptySet()) }
     var favoritePackages by remember { mutableStateOf(prefs.getStringSet("favorite_packages", emptySet())?.toSet() ?: emptySet()) }
+    var lockedPackages by remember { mutableStateOf(prefs.getStringSet("locked_packages", emptySet())?.toSet() ?: emptySet()) }
+    fun toggleAppLock(packageName: String) {
+        lockedPackages = if (packageName in lockedPackages) lockedPackages - packageName else lockedPackages + packageName
+        prefs.edit().putStringSet("locked_packages", lockedPackages).apply()
+    }
+    val launchAppWithLock: (String) -> Unit = { packageName ->
+        if (packageName !in lockedPackages) {
+            onLaunchApp(packageName)
+        } else {
+            val activity = context as? FragmentActivity
+            if (activity == null) {
+                Toast.makeText(context, "Unable to authenticate. App remains locked.", Toast.LENGTH_LONG).show()
+            } else {
+                val authenticators = if (android.os.Build.VERSION.SDK_INT >= 30)
+                    BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                else BiometricManager.Authenticators.BIOMETRIC_WEAK
+                val manager = BiometricManager.from(activity)
+                if (manager.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
+                    Toast.makeText(activity, "Set up fingerprint/face or a secure screen lock to open this protected app.", Toast.LENGTH_LONG).show()
+                } else {
+                    val prompt = BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), object : BiometricPrompt.AuthenticationCallback() {
+                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                            super.onAuthenticationSucceeded(result)
+                            onLaunchApp(packageName)
+                        }
+                    })
+                    val builder = BiometricPrompt.PromptInfo.Builder()
+                        .setTitle("Unlock ${apps.firstOrNull { it.packageName == packageName }?.label ?: "app"}")
+                        .setSubtitle("Authenticate to continue")
+                    if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        builder.setAllowedAuthenticators(authenticators)
+                    } else {
+                        builder.setAllowedAuthenticators(authenticators).setNegativeButtonText("Cancel")
+                    }
+                    prompt.authenticate(builder.build())
+                }
+            }
+        }
+    }
     fun toggleFavoriteApp(packageName: String) {
         favoritePackages = if (packageName in favoritePackages) favoritePackages - packageName else favoritePackages + packageName
         prefs.edit().putStringSet("favorite_packages", favoritePackages).apply()
@@ -504,6 +546,8 @@ private fun LumaLauncher(
                     onToggleHidden = ::toggleHiddenApp,
                     favoritePackages = favoritePackages,
                     onToggleFavorite = ::toggleFavoriteApp,
+                    lockedPackages = lockedPackages,
+                    onToggleAppLock = ::toggleAppLock,
                     gridColumns = gridColumns,
                     iconSize = iconSize,
                     showAppLabels = showAppLabels,
@@ -512,7 +556,7 @@ private fun LumaLauncher(
                     onToggleSort = { librarySortDescending = !librarySortDescending; prefs.edit().putBoolean("library_sort_descending", librarySortDescending).apply() },
                     badgeCounts = NotificationStore.badgeCounts,
                     onQueryChange = { searchQuery = it },
-                    onLaunchApp = onLaunchApp,
+                    onLaunchApp = launchAppWithLock,
                     onBack = { showLibrary = false; searchQuery = "" }
                 )
                 2 -> ControlCenter(
@@ -574,7 +618,7 @@ private fun LumaLauncher(
                     homeOrder = homeOrder,
                     folders = folders,
                     clock = clock,
-                    onLaunchApp = onLaunchApp,
+                    onLaunchApp = launchAppWithLock,
                     onOpenLibrary = { showLibrary = true },
                     onOpenControlCenter = { showControlCenter = true },
                     onOpenLockScreen = { showLockScreen = true },
@@ -1390,6 +1434,8 @@ private fun AppLibrary(
     onToggleHidden: (String) -> Unit,
     favoritePackages: Set<String>,
     onToggleFavorite: (String) -> Unit,
+    lockedPackages: Set<String>,
+    onToggleAppLock: (String) -> Unit,
     gridColumns: Int,
     iconSize: Int,
     showAppLabels: Boolean,
@@ -1484,7 +1530,11 @@ private fun AppLibrary(
         AlertDialog(
             onDismissRequest = { selectedApp = null },
             title = { Text(app.label) },
-            text = { Text(if (app.packageName in hiddenPackages) "This app is hidden from your home screen." else if (app.isSystem) "System application" else "Choose an action for this app.") },
+            text = { Text(buildString {
+                append(if (app.packageName in hiddenPackages) "This app is hidden from your home screen. " else if (app.isSystem) "System application. " else "Choose an action for this app. ")
+                if (app.packageName in lockedPackages) append("Authentication is required before opening it.")
+                else append("You can protect it with fingerprint, face, or device PIN/pattern where supported.")
+            }) },
             confirmButton = {
                 Row {
                     TextButton(onClick = { onToggleFavorite(app.packageName); selectedApp = null }) {
@@ -1492,6 +1542,9 @@ private fun AppLibrary(
                     }
                     TextButton(onClick = { onToggleHidden(app.packageName); selectedApp = null }) {
                         Text(if (app.packageName in hiddenPackages) "Unhide" else "Hide")
+                    }
+                    TextButton(onClick = { onToggleAppLock(app.packageName); selectedApp = null }) {
+                        Text(if (app.packageName in lockedPackages) "Unlock" else "App lock")
                     }
                     TextButton(onClick = {
                         selectedApp = null
