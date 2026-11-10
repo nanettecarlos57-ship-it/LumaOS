@@ -767,7 +767,7 @@ private fun WidgetsPage(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(info?.loadLabel(host.context.packageManager) ?: "App widget", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(info?.loadLabel(LocalContext.current.packageManager) ?: "App widget", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             Text("Remove", color = Color(0xFFFFB4B4), fontSize = 12.sp, modifier = Modifier.clickable { onRemove(id) }.padding(6.dp))
                         }
                         if (info != null) {
