@@ -6,24 +6,26 @@ import android.graphics.Canvas as AndroidCanvas
 import android.graphics.drawable.Drawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,11 +42,15 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,6 +62,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
@@ -64,9 +71,9 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.delay
+import org.json.JSONArray
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -77,23 +84,42 @@ private data class LauncherApp(
     val icon: ImageBitmap
 )
 
+private data class AppFolder(
+    val id: String,
+    val name: String,
+    val packages: List<String>
+)
+
+private data class HomeTile(
+    val id: String,
+    val app: LauncherApp? = null,
+    val folder: AppFolder? = null
+)
+
 class MainActivity : ComponentActivity() {
     private var launcherApps by mutableStateOf<List<LauncherApp>>(emptyList())
+    private var homeOrder by mutableStateOf<List<String>>(emptyList())
+    private var folders by mutableStateOf<List<AppFolder>>(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        loadHomeLayout()
         refreshInstalledApps()
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = android.graphics.Color.rgb(8, 12, 24)
         window.decorView.systemUiVisibility =
             android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
-            android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
 
         setContent {
             MaterialTheme {
                 LumaLauncher(
                     apps = launcherApps,
-                    onLaunchApp = ::launchApp
+                    homeOrder = homeOrder,
+                    folders = folders,
+                    onLaunchApp = ::launchApp,
+                    onSaveLayout = ::saveHomeOrder,
+                    onSaveFolders = ::saveFolders
                 )
             }
         }
@@ -102,6 +128,45 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshInstalledApps()
+    }
+
+    private fun loadHomeLayout() {
+        val prefs = getSharedPreferences("luma_home_layout", MODE_PRIVATE)
+        homeOrder = prefs.getString("order", "")!!
+            .split("|").filter { it.isNotBlank() }
+        val saved = prefs.getString("folders", "[]") ?: "[]"
+        folders = runCatching {
+            val array = JSONArray(saved)
+            (0 until array.length()).map { index ->
+                val item = array.getJSONObject(index)
+                val packages = item.getJSONArray("packages")
+                AppFolder(
+                    id = item.getString("id"),
+                    name = item.getString("name"),
+                    packages = (0 until packages.length()).map(packages::getString)
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun saveHomeOrder(order: List<String>) {
+        homeOrder = order
+        getSharedPreferences("luma_home_layout", MODE_PRIVATE)
+            .edit().putString("order", order.joinToString("|")).apply()
+    }
+
+    private fun saveFolders(updated: List<AppFolder>) {
+        folders = updated
+        val array = JSONArray()
+        updated.forEach { folder ->
+            val item = JSONObject()
+                .put("id", folder.id)
+                .put("name", folder.name)
+                .put("packages", JSONArray(folder.packages))
+            array.put(item)
+        }
+        getSharedPreferences("luma_home_layout", MODE_PRIVATE)
+            .edit().putString("folders", array.toString()).apply()
     }
 
     private fun refreshInstalledApps() {
@@ -118,6 +183,22 @@ class MainActivity : ComponentActivity() {
             }
             .distinctBy { it.packageName }
             .sortedBy { it.label.lowercase(Locale.getDefault()) }
+
+        if (homeOrder.isEmpty()) {
+            saveHomeOrder(launcherApps.take(20).map { it.packageName })
+        } else {
+            val valid = homeOrder.filter { token ->
+                token.startsWith("folder:") || launcherApps.any { it.packageName == token }
+            }
+            val folderMembers = folders.flatMap { it.packages }.toSet()
+            val knownApps = valid.filterNot { it.startsWith("folder:") }.toSet() + folderMembers
+            val additions = launcherApps.asSequence()
+                .filter { it.packageName !in knownApps }
+                .take((20 - knownApps.size).coerceAtLeast(0))
+                .map { it.packageName }
+                .toList()
+            if (valid != homeOrder || additions.isNotEmpty()) saveHomeOrder(valid + additions)
+        }
     }
 
     private fun launchApp(packageName: String) {
@@ -140,7 +221,11 @@ private fun Drawable.toImageBitmap(): ImageBitmap {
 @Composable
 private fun LumaLauncher(
     apps: List<LauncherApp>,
-    onLaunchApp: (String) -> Unit
+    homeOrder: List<String>,
+    folders: List<AppFolder>,
+    onLaunchApp: (String) -> Unit,
+    onSaveLayout: (List<String>) -> Unit,
+    onSaveFolders: (List<AppFolder>) -> Unit
 ) {
     var showLibrary by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -198,9 +283,13 @@ private fun LumaLauncher(
             } else {
                 HomeScreen(
                     apps = apps,
+                    homeOrder = homeOrder,
+                    folders = folders,
                     clock = clock,
                     onLaunchApp = onLaunchApp,
-                    onOpenLibrary = { showLibrary = true }
+                    onOpenLibrary = { showLibrary = true },
+                    onSaveLayout = onSaveLayout,
+                    onSaveFolders = onSaveFolders
                 )
             }
         }
@@ -210,11 +299,48 @@ private fun LumaLauncher(
 @Composable
 private fun HomeScreen(
     apps: List<LauncherApp>,
+    homeOrder: List<String>,
+    folders: List<AppFolder>,
     clock: String,
     onLaunchApp: (String) -> Unit,
-    onOpenLibrary: () -> Unit
+    onOpenLibrary: () -> Unit,
+    onSaveLayout: (List<String>) -> Unit,
+    onSaveFolders: (List<AppFolder>) -> Unit
 ) {
-    val homeApps = apps.take(20)
+    val appByPackage = apps.associateBy { it.packageName }
+    val folderById = folders.associateBy { "folder:${it.id}" }
+    val folderMembers = folders.flatMap { it.packages }.toSet()
+    val visibleOrder = (homeOrder + apps.map { it.packageName })
+        .distinct()
+        .filter { token ->
+            token.startsWith("folder:") || (token !in folderMembers && appByPackage.containsKey(token))
+        }
+    val tiles = visibleOrder.mapNotNull { token ->
+        if (token.startsWith("folder:")) {
+            folderById[token]?.let { HomeTile(token, folder = it) }
+        } else {
+            appByPackage[token]?.let { HomeTile(token, app = it) }
+        }
+    }
+
+    var selectedTile by remember { mutableStateOf<HomeTile?>(null) }
+    var folderSource by remember { mutableStateOf<LauncherApp?>(null) }
+    var openFolder by remember { mutableStateOf<AppFolder?>(null) }
+    var newFolderName by remember { mutableStateOf("Folder") }
+    var showFolderNameDialog by remember { mutableStateOf(false) }
+    var showAppPicker by remember { mutableStateOf(false) }
+
+    fun moveTile(tileId: String, direction: Int) {
+        val mutable = visibleOrder.toMutableList()
+        val index = mutable.indexOf(tileId)
+        val target = index + direction
+        if (index >= 0 && target in mutable.indices) {
+            val value = mutable.removeAt(index)
+            mutable.add(target, value)
+            onSaveLayout(mutable)
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -240,8 +366,21 @@ private fun HomeScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            items(homeApps, key = { it.packageName }) { app ->
-                AppIcon(app = app, onClick = { onLaunchApp(app.packageName) })
+            items(tiles, key = { it.id }) { tile ->
+                if (tile.app != null) {
+                    AppIcon(
+                        app = tile.app,
+                        onClick = { onLaunchApp(tile.app.packageName) },
+                        onLongClick = { selectedTile = tile }
+                    )
+                } else if (tile.folder != null) {
+                    FolderIcon(
+                        folder = tile.folder,
+                        apps = apps,
+                        onClick = { openFolder = tile.folder },
+                        onLongClick = { selectedTile = tile }
+                    )
+                }
             }
         }
 
@@ -277,12 +416,176 @@ private fun HomeScreen(
         }
         Spacer(Modifier.height(12.dp))
         Text(
-            "Swipe up or tap the app grid to open your App Library",
+            "Swipe up for App Library • Long-press an icon to arrange",
             modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenLibrary),
             color = Color(0xFFBAC6DE),
             fontSize = 11.sp,
             textAlign = TextAlign.Center
         )
+    }
+
+    selectedTile?.let { tile ->
+        AlertDialog(
+            onDismissRequest = { selectedTile = null },
+            title = { Text(if (tile.folder != null) tile.folder.name else tile.app?.label ?: "Arrange app") },
+            text = {
+                Column {
+                    Text("Change this icon's position or organise apps into folders.")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { moveTile(tile.id, -1); selectedTile = null }) { Text("Move left") }
+                        TextButton(onClick = { moveTile(tile.id, 1); selectedTile = null }) { Text("Move right") }
+                    }
+                    if (tile.app != null) {
+                        TextButton(onClick = {
+                            folderSource = tile.app
+                            selectedTile = null
+                            showAppPicker = true
+                        }) { Text("Create folder") }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { selectedTile = null }) { Text("Done") }
+            }
+        )
+    }
+
+    if (showAppPicker && folderSource != null) {
+        AlertDialog(
+            onDismissRequest = { showAppPicker = false; folderSource = null },
+            title = { Text("Choose another app") },
+            text = {
+                Column {
+                    apps.filter { it.packageName != folderSource?.packageName && it.packageName !in folderMembers }
+                        .take(12).forEach { app ->
+                            TextButton(onClick = {
+                                newFolderName = "Folder"
+                                showAppPicker = false
+                                showFolderNameDialog = true
+                                folderSource = folderSource
+                                selectedTile = HomeTile(app.packageName, app = app)
+                            }) { Text(app.label) }
+                        }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAppPicker = false; folderSource = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showFolderNameDialog && folderSource != null && selectedTile?.app != null) {
+        AlertDialog(
+            onDismissRequest = { showFolderNameDialog = false; folderSource = null; selectedTile = null },
+            title = { Text("Name your folder") },
+            text = {
+                OutlinedTextField(
+                    value = newFolderName,
+                    onValueChange = { newFolderName = it },
+                    singleLine = true,
+                    label = { Text("Folder name") }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val source = folderSource!!
+                    val second = selectedTile!!.app!!
+                    val folder = AppFolder(
+                        id = "folder_${System.currentTimeMillis()}",
+                        name = newFolderName.trim().ifBlank { "Folder" },
+                        packages = listOf(source.packageName, second.packageName)
+                    )
+                    val updatedFolders = folders + folder
+                    val oldOrder = visibleOrder.toMutableList()
+                    val insertAt = minOf(
+                        oldOrder.indexOf(source.packageName).takeIf { it >= 0 } ?: oldOrder.size,
+                        oldOrder.indexOf(second.packageName).takeIf { it >= 0 } ?: oldOrder.size
+                    )
+                    oldOrder.remove(source.packageName)
+                    oldOrder.remove(second.packageName)
+                    oldOrder.add(insertAt.coerceIn(0, oldOrder.size), "folder:${folder.id}")
+                    onSaveFolders(updatedFolders)
+                    onSaveLayout(oldOrder)
+                    showFolderNameDialog = false
+                    folderSource = null
+                    selectedTile = null
+                }) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFolderNameDialog = false; folderSource = null; selectedTile = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    openFolder?.let { folder ->
+        val members = folder.packages.mapNotNull { packageName -> appByPackage[packageName] }
+        AlertDialog(
+            onDismissRequest = { openFolder = null },
+            title = { Text(folder.name) },
+            text = {
+                Column {
+                    members.forEach { app ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                onLaunchApp(app.packageName)
+                                openFolder = null
+                            }.padding(vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Image(app.icon, contentDescription = app.label, modifier = Modifier.size(34.dp))
+                            Text(app.label, color = Color(0xFF202638), modifier = Modifier.padding(start = 12.dp))
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { openFolder = null }) { Text("Close") } },
+            dismissButton = {
+                TextButton(onClick = {
+                    onSaveFolders(folders.filterNot { it.id == folder.id })
+                    onSaveLayout(visibleOrder.filterNot { it == "folder:${folder.id}" } + folder.packages)
+                    openFolder = null
+                }) { Text("Unpack") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun FolderIcon(
+    folder: AppFolder,
+    apps: List<LauncherApp>,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    val icons = folder.packages.mapNotNull { packageName -> apps.firstOrNull { it.packageName == packageName } }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(58.dp)
+                .clip(RoundedCornerShape(17.dp))
+                .background(Color.White.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (icons.isEmpty()) {
+                Icon(Icons.Rounded.Folder, contentDescription = folder.name, tint = Color.White)
+            } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        icons.take(2).forEach { Image(it.icon, null, Modifier.size(19.dp)) }
+                    }
+                    if (icons.size > 2) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                            icons.drop(2).take(2).forEach { Image(it.icon, null, Modifier.size(19.dp)) }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(folder.name, color = Color.White, fontSize = 10.sp, maxLines = 1, textAlign = TextAlign.Center)
     }
 }
 
@@ -330,11 +633,7 @@ private fun AppLibrary(
             )
         }
         Spacer(Modifier.height(18.dp))
-        Text(
-            "${filtered.size} applications",
-            color = Color(0xFFB3BED3),
-            fontSize = 12.sp
-        )
+        Text("${filtered.size} applications", color = Color(0xFFB3BED3), fontSize = 12.sp)
         Spacer(Modifier.height(12.dp))
         LazyVerticalGrid(
             columns = GridCells.Fixed(4),
@@ -350,18 +649,24 @@ private fun AppLibrary(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AppIcon(app: LauncherApp, onClick: () -> Unit) {
+private fun AppIcon(
+    app: LauncherApp,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(onClick = onClick)
+        modifier = Modifier.combinedClickable(
+            onClick = onClick,
+            onLongClick = { onLongClick?.invoke() }
+        )
     ) {
         Image(
             bitmap = app.icon,
             contentDescription = app.label,
-            modifier = Modifier
-                .size(58.dp)
-                .clip(RoundedCornerShape(17.dp))
+            modifier = Modifier.size(58.dp).clip(RoundedCornerShape(17.dp))
         )
         Spacer(Modifier.height(6.dp))
         Text(
