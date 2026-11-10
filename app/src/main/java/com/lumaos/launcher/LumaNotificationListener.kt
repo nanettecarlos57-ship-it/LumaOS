@@ -32,7 +32,16 @@ object NotificationStore {
 }
 
 class LumaNotificationListener : NotificationListenerService() {
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        activeNotifications?.forEach(::publishNotification)
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        publishNotification(sbn)
+    }
+
+    private fun publishNotification(sbn: StatusBarNotification) {
         val extras = sbn.notification.extras
         val packageName = sbn.packageName
         val appName = runCatching {
@@ -43,6 +52,9 @@ class LumaNotificationListener : NotificationListenerService() {
             extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
                 ?: extras.getCharSequence(Notification.EXTRA_TEXT)
             )?.toString().orEmpty()
+
+        if (title.isBlank() && message.isBlank()) return
+
         NotificationStore.add(
             LumaNotification(
                 id = sbn.key.hashCode().toLong(),
