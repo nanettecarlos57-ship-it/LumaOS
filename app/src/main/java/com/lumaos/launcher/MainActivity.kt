@@ -61,7 +61,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -438,8 +440,9 @@ private fun HomeScreen(
                     bitmap = app.icon,
                     contentDescription = app.label,
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(15.dp))
+                        .size(52.dp)
+                        .shadow(4.dp, RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .clickable { onLaunchApp(app.packageName) }
                 )
             }
@@ -690,8 +693,8 @@ private fun FolderIcon(
     ) {
         Box(
             modifier = Modifier
-                .size(58.dp)
-                .clip(RoundedCornerShape(17.dp))
+                .size(60.dp)
+                .clip(RoundedCornerShape(18.dp))
                 .background(Color.White.copy(alpha = 0.16f)),
             contentAlignment = Alignment.Center
         ) {
@@ -700,11 +703,11 @@ private fun FolderIcon(
             } else {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                        icons.take(2).forEach { Image(it.icon, null, Modifier.size(19.dp)) }
+                        icons.take(2).forEach { Image(it.icon, null, Modifier.size(20.dp)) }
                     }
                     if (icons.size > 2) {
                         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                            icons.drop(2).take(2).forEach { Image(it.icon, null, Modifier.size(19.dp)) }
+                            icons.drop(2).take(2).forEach { Image(it.icon, null, Modifier.size(20.dp)) }
                         }
                     }
                 }
@@ -792,13 +795,17 @@ private fun AppIcon(
         Image(
             bitmap = app.icon,
             contentDescription = app.label,
-            modifier = Modifier.size(58.dp).clip(RoundedCornerShape(17.dp))
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .size(60.dp)
+                .shadow(5.dp, RoundedCornerShape(18.dp))
+                .clip(RoundedCornerShape(18.dp))
         )
         Spacer(Modifier.height(6.dp))
         Text(
             app.label,
             color = Color.White,
-            fontSize = 10.sp,
+            fontSize = 11.sp,
             maxLines = 1,
             textAlign = TextAlign.Center
         )
