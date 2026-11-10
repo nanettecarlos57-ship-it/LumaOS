@@ -567,6 +567,8 @@ private fun LumaLauncher(
                 6 -> LauncherSettingsPage(
                     themeStyle = themeStyle,
                     fontStyle = fontStyle,
+                    appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0.2.0",
+                    versionCode = if (android.os.Build.VERSION.SDK_INT >= 28) context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode else context.packageManager.getPackageInfo(context.packageName, 0).versionCode.toLong(),
                     onThemeStyleChange = { themeStyle = it; prefs.edit().putInt("theme_style", it).apply() },
                     onFontStyleChange = { fontStyle = it; prefs.edit().putInt("font_style", it).apply() },
                     onOpenCallLogs = {
@@ -922,6 +924,8 @@ private fun HomeScreen(
 private fun LauncherSettingsPage(
     themeStyle: Int,
     fontStyle: Int,
+    appVersion: String,
+    versionCode: Long,
     onThemeStyleChange: (Int) -> Unit,
     onFontStyleChange: (Int) -> Unit,
     onOpenCallLogs: () -> Unit,
@@ -946,6 +950,15 @@ private fun LauncherSettingsPage(
             Text("Done", color = Color(0xFFB9C9FF), modifier = Modifier.clickable(onClick = onBack))
         }
         Text("Personalise the look, typography and spacing of your LumaOS home screen.", color = Color(0xFFD4DCEE), fontSize = 13.sp)
+        Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("About LumaOS", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text("LumaOS • Your Android. A New Experience.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Version", color = Color(0xFFD4DCEE), fontSize = 12.sp); Text(appVersion, color = Color.White, fontSize = 12.sp) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Build", color = Color(0xFFD4DCEE), fontSize = 12.sp); Text(versionCode.toString(), color = Color.White, fontSize = 12.sp) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Builder", color = Color(0xFFD4DCEE), fontSize = 12.sp); Text("Nation Hub Tech", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Package", color = Color(0xFFD4DCEE), fontSize = 12.sp); Text("com.lumaos.launcher", color = Color.White, fontSize = 11.sp) }
+            Text("Built with care by Nation Hub Tech.", color = Color(0xFFB9C9FF), fontSize = 11.sp)
+        }
         Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Make LumaOS your default", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text("Choose LumaOS as the Home app so pressing your phone's Home button opens this launcher.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
