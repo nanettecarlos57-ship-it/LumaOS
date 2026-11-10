@@ -616,7 +616,7 @@ private fun LumaLauncher(
                     onDismiss = { NotificationStore.dismiss(it) },
                     onOpenNotification = { item ->
                         item.contentIntent?.let { pendingIntent ->
-                            runCatching { pendingIntent.send(context) }
+                            runCatching { pendingIntent.send() }
                                 .onFailure { Toast.makeText(context, "Unable to open this notification.", Toast.LENGTH_SHORT).show() }
                         }
                     },
