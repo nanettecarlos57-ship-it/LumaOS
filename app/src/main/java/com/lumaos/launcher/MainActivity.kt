@@ -611,7 +611,26 @@ private fun LumaLauncher(
                     notifications = NotificationStore.notifications,
                     onBack = { showNotificationCenter = false },
                     onEnableAccess = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
-                    onClear = { NotificationStore.clear() }
+                    onClear = { NotificationStore.clear() },
+                    onClearApp = { NotificationStore.clearApp(it) },
+                    onDismiss = { NotificationStore.dismiss(it) },
+                    onOpenNotification = { item ->
+                        item.contentIntent?.let { pendingIntent ->
+                            runCatching { pendingIntent.send(context) }
+                                .onFailure { Toast.makeText(context, "Unable to open this notification.", Toast.LENGTH_SHORT).show() }
+                        }
+                    },
+                    onRunAction = { _, action, reply ->
+                        val fillInIntent = Intent()
+                        val remoteInputs = action.remoteInputs.filter { it.allowFreeFormInput }
+                        if (!reply.isNullOrBlank() && remoteInputs.isNotEmpty()) {
+                            val results = Bundle()
+                            remoteInputs.forEach { results.putCharSequence(it.resultKey, reply) }
+                            android.app.RemoteInput.addResultsToIntent(remoteInputs.toTypedArray(), fillInIntent, results)
+                        }
+                        runCatching { action.pendingIntent.send(context, 0, fillInIntent) }
+                            .onFailure { Toast.makeText(context, "This notification action is no longer available.", Toast.LENGTH_SHORT).show() }
+                    }
                 )
                 else -> HomeScreen(
                     apps = apps,
@@ -1183,8 +1202,17 @@ private fun NotificationCenter(
     notifications: List<LumaNotification>,
     onBack: () -> Unit,
     onEnableAccess: () -> Unit,
-    onClear: () -> Unit
+    onClear: () -> Unit,
+    onClearApp: (String) -> Unit,
+    onDismiss: (String) -> Unit,
+    onOpenNotification: (LumaNotification) -> Unit,
+    onRunAction: (LumaNotification, LumaNotificationAction, String?) -> Unit
 ) {
+    var collapsedGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var replyTarget by remember { mutableStateOf<Pair<LumaNotification, LumaNotificationAction>?>(null) }
+    var replyText by remember { mutableStateOf("") }
+    val groupedNotifications = notifications.groupBy { it.packageName }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1195,8 +1223,17 @@ private fun NotificationCenter(
             Text("Done", color = Color(0xFFB9C9FF), modifier = Modifier.clickable(onClick = onBack))
         }
         Spacer(Modifier.height(8.dp))
-        Text("Your recent notifications", color = Color(0xFFD4DCEE), fontSize = 13.sp)
-        Spacer(Modifier.height(18.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Grouped by app", color = Color(0xFFD4DCEE), fontSize = 13.sp)
+            if (notifications.isNotEmpty()) {
+                TextButton(onClick = onClear) { Text("Clear history") }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
         if (notifications.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
@@ -1204,35 +1241,143 @@ private fun NotificationCenter(
             ) {
                 Text("No notifications yet", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
-                Text("Allow notification access to show notifications here. You control this permission in Android settings.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+                Text(
+                    "Allow notification access to show notifications here. You control this permission in Android settings.",
+                    color = Color(0xFFD4DCEE),
+                    fontSize = 12.sp
+                )
                 TextButton(onClick = onEnableAccess) { Text("Enable notification access") }
             }
         } else {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onClear) { Text("Clear all") }
-            }
             androidx.compose.foundation.lazy.LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(bottom = 20.dp)
             ) {
-                items(count = notifications.size, key = { index -> notifications[index].id }) { index ->
-                    val item = notifications[index]
+                items(groupedNotifications.entries.toList(), key = { it.key }) { entry ->
+                    val packageName = entry.key
+                    val appNotifications = entry.value
+                    val isCollapsed = packageName in collapsedGroups
                     Column(
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-                            .background(Color.White.copy(alpha = 0.13f)).padding(15.dp)
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
+                            .background(Color.White.copy(alpha = 0.12f)).padding(13.dp)
                     ) {
-                        Text(item.appName, color = Color(0xFFB9C9FF), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        Text(item.title.ifBlank { "Notification" }, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        if (item.message.isNotBlank()) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(item.message, color = Color(0xFFD4DCEE), fontSize = 12.sp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                collapsedGroups = if (isCollapsed) collapsedGroups - packageName
+                                else collapsedGroups + packageName
+                            },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    appNotifications.first().appName,
+                                    color = Color(0xFFB9C9FF),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    "${appNotifications.size} notification${if (appNotifications.size == 1) "" else "s"}",
+                                    color = Color(0xFF9EABC4),
+                                    fontSize = 10.sp
+                                )
+                            }
+                            Text(if (isCollapsed) "Show" else "Hide", color = Color(0xFFB9C9FF), fontSize = 11.sp)
                         }
-                        Spacer(Modifier.height(5.dp))
-                        Text(item.time, color = Color(0xFF9EABC4), fontSize = 10.sp)
+                        if (!isCollapsed) {
+                            appNotifications.forEach { item ->
+                                Spacer(Modifier.height(10.dp))
+                                Column(
+                                    modifier = Modifier.fillMaxWidth()
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Color.Black.copy(alpha = 0.16f))
+                                        .clickable(enabled = item.contentIntent != null) { onOpenNotification(item) }
+                                        .padding(12.dp)
+                                ) {
+                                    Text(
+                                        item.title.ifBlank { "Notification" },
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    if (item.message.isNotBlank()) {
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(item.message, color = Color(0xFFD4DCEE), fontSize = 12.sp)
+                                    }
+                                    Spacer(Modifier.height(5.dp))
+                                    Text(item.time, color = Color(0xFF9EABC4), fontSize = 10.sp)
+                                    if (item.actions.isNotEmpty() || item.contentIntent != null) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            item.actions.take(3).forEach { action ->
+                                                TextButton(onClick = {
+                                                    if (action.remoteInputs.any { it.allowFreeFormInput }) {
+                                                        replyTarget = item to action
+                                                        replyText = ""
+                                                    } else {
+                                                        onRunAction(item, action, null)
+                                                    }
+                                                }) {
+                                                    Text(action.title, fontSize = 11.sp)
+                                                }
+                                            }
+                                            TextButton(onClick = { onDismiss(item.id) }) {
+                                                Text("Dismiss", fontSize = 11.sp)
+                                            }
+                                        }
+                                    } else {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                            TextButton(onClick = { onDismiss(item.id) }) { Text("Dismiss", fontSize = 11.sp) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { onClearApp(packageName) }) {
+                                Text("Clear app", fontSize = 10.sp)
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    replyTarget?.let { (item, action) ->
+        AlertDialog(
+            onDismissRequest = { replyTarget = null },
+            title = { Text("Reply to ${item.appName}") },
+            text = {
+                Column {
+                    Text(item.title.ifBlank { "Notification" }, color = Color(0xFF68748A), fontSize = 12.sp)
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = replyText,
+                        onValueChange = { replyText = it },
+                        label = { Text("Your reply") },
+                        minLines = 2,
+                        maxLines = 4
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = replyText.isNotBlank(),
+                    onClick = {
+                        onRunAction(item, action, replyText.trim())
+                        replyTarget = null
+                        replyText = ""
+                    }
+                ) { Text("Send") }
+            },
+            dismissButton = {
+                TextButton(onClick = { replyTarget = null; replyText = "" }) { Text("Cancel") }
+            }
+        )
     }
 }
 
