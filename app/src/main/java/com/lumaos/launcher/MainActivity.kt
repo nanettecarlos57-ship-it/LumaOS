@@ -5,6 +5,8 @@ import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.drawable.Drawable
 import android.os.Bundle
@@ -12,6 +14,8 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
@@ -341,6 +345,21 @@ private fun LumaLauncher(
     var iconSize by remember { mutableStateOf(prefs.getInt("icon_size", 60).coerceIn(48, 76)) }
     var showAppLabels by remember { mutableStateOf(prefs.getBoolean("show_app_labels", true)) }
     var wallpaperStyle by remember { mutableStateOf(prefs.getInt("wallpaper_style", 0).coerceIn(0, 3)) }
+    var customWallpaperUri by remember { mutableStateOf(prefs.getString("custom_wallpaper_uri", null)) }
+    val wallpaperPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            customWallpaperUri = uri.toString()
+            prefs.edit().putString("custom_wallpaper_uri", uri.toString()).apply()
+        }
+    }
+    val customWallpaper = remember(customWallpaperUri) {
+        customWallpaperUri?.let { value ->
+            runCatching { context.contentResolver.openInputStream(Uri.parse(value))?.use(BitmapFactory::decodeStream)?.asImageBitmap() }.getOrNull()
+        }
+    }
     var searchQuery by remember { mutableStateOf("") }
     var clock by remember { mutableStateOf(currentTime()) }
     val wallpaperPalettes = listOf(listOf(Color(0xFF26375D), Color(0xFF10182D), Color(0xFF070A12)), listOf(Color(0xFF4B2C70), Color(0xFF211536), Color(0xFF090711)), listOf(Color(0xFF075B68), Color(0xFF102D42), Color(0xFF070D18)), listOf(Color(0xFF6A3B35), Color(0xFF30202B), Color(0xFF0B0B12)))
@@ -397,6 +416,10 @@ private fun LumaLauncher(
             )
             .padding(horizontal = 22.dp)
     ) {
+        if (customWallpaper != null) {
+            Image(bitmap = customWallpaper!!, contentDescription = "Custom launcher wallpaper", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.18f), Color.Black.copy(alpha = 0.58f)))))
+        }
         AnimatedContent(
             targetState = when {
                 showLibrary -> 1
@@ -428,6 +451,9 @@ private fun LumaLauncher(
                     iconSize = iconSize,
                     showAppLabels = showAppLabels,
                     wallpaperStyle = wallpaperStyle,
+                    hasCustomWallpaper = customWallpaperUri != null,
+                    onPickWallpaper = { wallpaperPicker.launch(arrayOf("image/*")) },
+                    onClearWallpaper = { customWallpaperUri = null; prefs.edit().remove("custom_wallpaper_uri").apply() },
                     onWallpaperStyleChange = { wallpaperStyle = it; prefs.edit().putInt("wallpaper_style", it).apply() },
                     onGridColumnsChange = { gridColumns = it; prefs.edit().putInt("grid_columns", it).apply() },
                     onIconSizeChange = { iconSize = it; prefs.edit().putInt("icon_size", it).apply() },
@@ -755,6 +781,9 @@ private fun LauncherSettingsPage(
     iconSize: Int,
     showAppLabels: Boolean,
     wallpaperStyle: Int,
+    hasCustomWallpaper: Boolean,
+    onPickWallpaper: () -> Unit,
+    onClearWallpaper: () -> Unit,
     onWallpaperStyleChange: (Int) -> Unit,
     onGridColumnsChange: (Int) -> Unit,
     onIconSizeChange: (Int) -> Unit,
@@ -783,7 +812,11 @@ private fun LauncherSettingsPage(
         }
         Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(16.dp)) {
             Text("Wallpaper style", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            Text("Choose a premium gradient for your home screen.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+            Text("Choose a premium gradient or use a photo from your device.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 10.dp, bottom = 6.dp)) {
+                androidx.compose.material3.OutlinedButton(onClick = onPickWallpaper) { Text("Choose photo") }
+                if (hasCustomWallpaper) androidx.compose.material3.TextButton(onClick = onClearWallpaper) { Text("Use gradient") }
+            }
             listOf("Midnight Blue", "Royal Purple", "Ocean Teal", "Warm Sunset").forEachIndexed { index, name ->
                 Row(modifier = Modifier.fillMaxWidth().clickable { onWallpaperStyleChange(index) }.padding(vertical = 9.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(name, color = Color.White, fontSize = 14.sp)
