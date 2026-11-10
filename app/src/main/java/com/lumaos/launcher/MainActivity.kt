@@ -437,6 +437,7 @@ private fun LumaLauncher(
                 1 -> AppLibrary(
                     apps = apps,
                     query = searchQuery,
+                    badgeCounts = NotificationStore.badgeCounts,
                     onQueryChange = { searchQuery = it },
                     onLaunchApp = onLaunchApp,
                     onBack = { showLibrary = false; searchQuery = "" }
@@ -476,6 +477,7 @@ private fun LumaLauncher(
                 )
                 else -> HomeScreen(
                     apps = apps,
+                    badgeCounts = NotificationStore.badgeCounts,
                     homeOrder = homeOrder,
                     folders = folders,
                     clock = clock,
@@ -500,6 +502,7 @@ private fun LumaLauncher(
 @Composable
 private fun HomeScreen(
     apps: List<LauncherApp>,
+    badgeCounts: Map<String, Int>,
     homeOrder: List<String>,
     folders: List<AppFolder>,
     clock: String,
@@ -592,7 +595,8 @@ private fun HomeScreen(
                         onClick = { onLaunchApp(tile.app.packageName) },
                         onLongClick = { selectedTile = tile },
                         iconSize = iconSize,
-                        showLabel = showAppLabels
+                        showLabel = showAppLabels,
+                        badgeCount = badgeCounts[tile.app.packageName] ?: 0
                     )
                 } else if (tile.folder != null) {
                     FolderIcon(
@@ -1168,6 +1172,7 @@ private fun FolderIcon(
 @Composable
 private fun AppLibrary(
     apps: List<LauncherApp>,
+    badgeCounts: Map<String, Int>,
     query: String,
     onQueryChange: (String) -> Unit,
     onLaunchApp: (String) -> Unit,
@@ -1219,7 +1224,7 @@ private fun AppLibrary(
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             items(filtered, key = { it.packageName }) { app ->
-                AppIcon(app = app, onClick = { onLaunchApp(app.packageName) })
+                AppIcon(app = app, onClick = { onLaunchApp(app.packageName) }, badgeCount = badgeCounts[app.packageName] ?: 0)
             }
         }
     }
@@ -1232,7 +1237,8 @@ private fun AppIcon(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     iconSize: Int = 60,
-    showLabel: Boolean = true
+    showLabel: Boolean = true,
+    badgeCount: Int = 0
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1241,15 +1247,27 @@ private fun AppIcon(
             onLongClick = { onLongClick?.invoke() }
         )
     ) {
-        Image(
-            bitmap = app.icon,
-            contentDescription = app.label,
+        Box {
+            Image(
+                bitmap = app.icon,
+                contentDescription = app.label,
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .size(iconSize.dp)
                 .shadow(5.dp, RoundedCornerShape(18.dp))
-                .clip(RoundedCornerShape(18.dp))
-        )
+                    .clip(RoundedCornerShape(18.dp))
+            )
+            if (badgeCount > 0) {
+                Box(
+                    modifier = Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-5).dp)
+                        .size(if (badgeCount > 9) 22.dp else 18.dp)
+                        .clip(CircleShape).background(Color(0xFFFF453A)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(if (badgeCount > 99) "99+" else badgeCount.toString(), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
         if (showLabel) {
             Spacer(Modifier.height(6.dp))
             Text(app.label, color = Color.White, fontSize = 11.sp, maxLines = 1, textAlign = TextAlign.Center)
