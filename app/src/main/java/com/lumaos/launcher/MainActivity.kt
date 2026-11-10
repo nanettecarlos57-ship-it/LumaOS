@@ -255,6 +255,7 @@ private fun LumaLauncher(
     var showLibrary by remember { mutableStateOf(false) }
     var showControlCenter by remember { mutableStateOf(false) }
     var showLockScreen by remember { mutableStateOf(false) }
+    var showNotificationCenter by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var clock by remember { mutableStateOf(currentTime()) }
     val background = Brush.verticalGradient(
@@ -268,14 +269,16 @@ private fun LumaLauncher(
         }
     }
 
-    BackHandler(enabled = showLibrary || showControlCenter || showLockScreen) {
+    BackHandler(enabled = showLibrary || showControlCenter || showLockScreen || showNotificationCenter) {
         if (showLibrary) {
             showLibrary = false
             searchQuery = ""
         } else if (showControlCenter) {
             showControlCenter = false
-        } else {
+        } else if (showLockScreen) {
             showLockScreen = false
+        } else {
+            showNotificationCenter = false
         }
     }
 
@@ -311,6 +314,7 @@ private fun LumaLauncher(
                 showLibrary -> 1
                 showControlCenter -> 2
                 showLockScreen -> 3
+                showNotificationCenter -> 4
                 else -> 0
             },
             transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -329,6 +333,12 @@ private fun LumaLauncher(
                     onOpenSystemSettings = onOpenSystemSettings
                 )
                 3 -> LockScreenPreview(clock = clock, onBack = { showLockScreen = false })
+                4 -> NotificationCenter(
+                    notifications = NotificationStore.notifications,
+                    onBack = { showNotificationCenter = false },
+                    onEnableAccess = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                    onClear = { NotificationStore.clear() }
+                )
                 else -> HomeScreen(
                     apps = apps,
                     homeOrder = homeOrder,
@@ -338,6 +348,7 @@ private fun LumaLauncher(
                     onOpenLibrary = { showLibrary = true },
                     onOpenControlCenter = { showControlCenter = true },
                     onOpenLockScreen = { showLockScreen = true },
+                    onOpenNotifications = { showNotificationCenter = true },
                     onSaveLayout = onSaveLayout,
                     onSaveFolders = onSaveFolders
                 )
@@ -356,6 +367,7 @@ private fun HomeScreen(
     onOpenLibrary: () -> Unit,
     onOpenControlCenter: () -> Unit,
     onOpenLockScreen: () -> Unit,
+    onOpenNotifications: () -> Unit,
     onSaveLayout: (List<String>) -> Unit,
     onSaveFolders: (List<AppFolder>) -> Unit
 ) {
@@ -401,6 +413,7 @@ private fun HomeScreen(
         ) {
             Text("LumaOS", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Notifications", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenNotifications))
                 Text("Lock Screen", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenLockScreen))
                 Text("Control Center", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenControlCenter))
             }
@@ -611,6 +624,64 @@ private fun HomeScreen(
 }
 
 
+
+
+@Composable
+private fun NotificationCenter(
+    notifications: List<LumaNotification>,
+    onBack: () -> Unit,
+    onEnableAccess: () -> Unit,
+    onClear: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Notification Center", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+            Text("Done", color = Color(0xFFB9C9FF), modifier = Modifier.clickable(onClick = onBack))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("Your recent notifications", color = Color(0xFFD4DCEE), fontSize = 13.sp)
+        Spacer(Modifier.height(18.dp))
+        if (notifications.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
+                    .background(Color.White.copy(alpha = 0.12f)).padding(18.dp)
+            ) {
+                Text("No notifications yet", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                Text("Allow notification access to show notifications here. You control this permission in Android settings.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+                TextButton(onClick = onEnableAccess) { Text("Enable notification access") }
+            }
+        } else {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onClear) { Text("Clear all") }
+            }
+            androidx.compose.foundation.lazy.LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 20.dp)
+            ) {
+                items(notifications, key = { it.id }) { item ->
+                    Column(
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+                            .background(Color.White.copy(alpha = 0.13f)).padding(15.dp)
+                    ) {
+                        Text(item.appName, color = Color(0xFFB9C9FF), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text(item.title.ifBlank { "Notification" }, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        if (item.message.isNotBlank()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(item.message, color = Color(0xFFD4DCEE), fontSize = 12.sp)
+                        }
+                        Spacer(Modifier.height(5.dp))
+                        Text(item.time, color = Color(0xFF9EABC4), fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun LockScreenPreview(clock: String, onBack: () -> Unit) {
