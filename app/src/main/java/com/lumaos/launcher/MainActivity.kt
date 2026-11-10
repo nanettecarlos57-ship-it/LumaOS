@@ -367,6 +367,11 @@ private fun LumaLauncher(
     var themeStyle by remember { mutableStateOf(prefs.getInt("theme_style", 0).coerceIn(0, 3)) }
     var fontStyle by remember { mutableStateOf(prefs.getInt("font_style", 0).coerceIn(0, 2)) }
     var customWallpaperUri by remember { mutableStateOf(prefs.getString("custom_wallpaper_uri", null)) }
+    var hiddenPackages by remember { mutableStateOf(prefs.getStringSet("hidden_packages", emptySet())?.toSet() ?: emptySet()) }
+    fun toggleHiddenApp(packageName: String) {
+        hiddenPackages = if (packageName in hiddenPackages) hiddenPackages - packageName else hiddenPackages + packageName
+        prefs.edit().putStringSet("hidden_packages", hiddenPackages).apply()
+    }
     val wallpaperPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
@@ -490,6 +495,8 @@ private fun LumaLauncher(
             when (page) {
                 1 -> AppLibrary(
                     apps = apps,
+                    hiddenPackages = hiddenPackages,
+                    onToggleHidden = ::toggleHiddenApp,
                     gridColumns = gridColumns,
                     iconSize = iconSize,
                     showAppLabels = showAppLabels,
@@ -555,6 +562,7 @@ private fun LumaLauncher(
                 )
                 else -> HomeScreen(
                     apps = apps,
+                    hiddenPackages = hiddenPackages,
                     badgeCounts = NotificationStore.badgeCounts,
                     homeOrder = homeOrder,
                     folders = folders,
@@ -581,6 +589,7 @@ private fun LumaLauncher(
 @Composable
 private fun HomeScreen(
     apps: List<LauncherApp>,
+    hiddenPackages: Set<String>,
     badgeCounts: Map<String, Int>,
     homeOrder: List<String>,
     folders: List<AppFolder>,
@@ -603,7 +612,7 @@ private fun HomeScreen(
     val folderMembers = folders.flatMap { it.packages }.toSet()
     val visibleOrder = homeOrder.filter { token ->
         (token.startsWith("folder:") && folderById.containsKey(token)) ||
-            (!token.startsWith("folder:") && token !in folderMembers && appByPackage.containsKey(token))
+            (!token.startsWith("folder:") && token !in folderMembers && token !in hiddenPackages && appByPackage.containsKey(token))
     }
     val tiles = visibleOrder.mapNotNull { token ->
         if (token.startsWith("folder:")) {
@@ -1370,6 +1379,8 @@ private fun FolderIcon(
 @Composable
 private fun AppLibrary(
     apps: List<LauncherApp>,
+    hiddenPackages: Set<String>,
+    onToggleHidden: (String) -> Unit,
     gridColumns: Int,
     iconSize: Int,
     showAppLabels: Boolean,
@@ -1382,9 +1393,11 @@ private fun AppLibrary(
     onBack: () -> Unit
 ) {
     var appFilter by remember { mutableStateOf("All") }
+    var showHiddenApps by remember { mutableStateOf(false) }
     var selectedApp by remember { mutableStateOf<LauncherApp?>(null) }
     val filtered = apps.filter { app ->
-        app.label.contains(query, ignoreCase = true) && when (appFilter) {
+        (if (showHiddenApps) app.packageName in hiddenPackages else app.packageName !in hiddenPackages) &&
+            app.label.contains(query, ignoreCase = true) && when (appFilter) {
             "System" -> app.isSystem
             "Downloaded" -> !app.isSystem
             else -> true
@@ -1426,7 +1439,7 @@ private fun AppLibrary(
             )
         }
         Spacer(Modifier.height(14.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             listOf("All", "Downloaded", "System").forEach { filter ->
                 val selected = appFilter == filter
                 Text(filter, color = if (selected) Color.White else Color(0xFFB3BED3), fontSize = 12.sp,
@@ -1435,6 +1448,8 @@ private fun AppLibrary(
                         .clickable { appFilter = filter }
                         .padding(horizontal = 13.dp, vertical = 8.dp))
             }
+            Text(if (showHiddenApps) "Hidden" else "Visible", color = Color(0xFFB9C9FF), fontSize = 11.sp,
+                modifier = Modifier.clickable { showHiddenApps = !showHiddenApps }.padding(6.dp))
         }
         Spacer(Modifier.height(14.dp))
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -1459,12 +1474,17 @@ private fun AppLibrary(
         AlertDialog(
             onDismissRequest = { selectedApp = null },
             title = { Text(app.label) },
-            text = { Text(if (app.isSystem) "System application" else "Choose an action for this app.") },
+            text = { Text(if (app.packageName in hiddenPackages) "This app is hidden from your home screen." else if (app.isSystem) "System application" else "Choose an action for this app.") },
             confirmButton = {
-                TextButton(onClick = {
-                    selectedApp = null
-                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.packageName}")))
-                }) { Text("App info") }
+                Row {
+                    TextButton(onClick = { onToggleHidden(app.packageName); selectedApp = null }) {
+                        Text(if (app.packageName in hiddenPackages) "Unhide" else "Hide")
+                    }
+                    TextButton(onClick = {
+                        selectedApp = null
+                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.packageName}")))
+                    }) { Text("App info") }
+                }
             },
             dismissButton = {
                 Row {
