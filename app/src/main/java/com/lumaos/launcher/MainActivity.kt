@@ -550,6 +550,7 @@ private fun HomeScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FolderIcon(
     folder: AppFolder,
