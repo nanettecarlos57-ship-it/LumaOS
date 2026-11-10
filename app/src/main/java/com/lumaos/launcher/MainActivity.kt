@@ -97,7 +97,8 @@ import java.util.Locale
 private data class LauncherApp(
     val label: String,
     val packageName: String,
-    val icon: ImageBitmap
+    val icon: ImageBitmap,
+    val isSystem: Boolean
 )
 
 private data class AppFolder(
@@ -279,7 +280,8 @@ class MainActivity : ComponentActivity() {
                 LauncherApp(
                     label = info.loadLabel(packageManager)?.toString() ?: packageName,
                     packageName = packageName,
-                    icon = info.loadIcon(packageManager).toImageBitmap()
+                    icon = info.loadIcon(packageManager).toImageBitmap(),
+                    isSystem = activityInfo.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM != 0
                 )
             }
             .distinctBy { it.packageName }
@@ -1190,8 +1192,14 @@ private fun AppLibrary(
     onLaunchApp: (String) -> Unit,
     onBack: () -> Unit
 ) {
-    val filtered = apps.filter { it.label.contains(query, ignoreCase = true) }
-        .sortedBy { it.label.lowercase(Locale.getDefault()) }
+    var appFilter by remember { mutableStateOf("All") }
+    val filtered = apps.filter { app ->
+        app.label.contains(query, ignoreCase = true) && when (appFilter) {
+            "System" -> app.isSystem
+            "Downloaded" -> !app.isSystem
+            else -> true
+        }
+    }.sortedBy { it.label.lowercase(Locale.getDefault()) }
         .let { if (sortDescending) it.reversed() else it }
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -1227,7 +1235,18 @@ private fun AppLibrary(
                 }
             )
         }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(14.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("All", "Downloaded", "System").forEach { filter ->
+                val selected = appFilter == filter
+                Text(filter, color = if (selected) Color.White else Color(0xFFB3BED3), fontSize = 12.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(18.dp))
+                        .background(if (selected) Color(0xFF6650C8) else Color.White.copy(alpha = 0.10f))
+                        .clickable { appFilter = filter }
+                        .padding(horizontal = 13.dp, vertical = 8.dp))
+            }
+        }
+        Spacer(Modifier.height(14.dp))
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text("${filtered.size} applications", color = Color(0xFFB3BED3), fontSize = 12.sp)
             Text(if (sortDescending) "Z–A  ↓" else "A–Z  ↑", color = Color(0xFFB9C9FF), fontSize = 12.sp, modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onToggleSort).padding(horizontal = 12.dp, vertical = 7.dp))
