@@ -340,11 +340,11 @@ private fun LumaLauncher(
     var gridColumns by remember { mutableStateOf(prefs.getInt("grid_columns", 4).coerceIn(3, 5)) }
     var iconSize by remember { mutableStateOf(prefs.getInt("icon_size", 60).coerceIn(48, 76)) }
     var showAppLabels by remember { mutableStateOf(prefs.getBoolean("show_app_labels", true)) }
+    var wallpaperStyle by remember { mutableStateOf(prefs.getInt("wallpaper_style", 0).coerceIn(0, 3)) }
     var searchQuery by remember { mutableStateOf("") }
     var clock by remember { mutableStateOf(currentTime()) }
-    val background = Brush.verticalGradient(
-        colors = listOf(Color(0xFF26375D), Color(0xFF10182D), Color(0xFF070A12))
-    )
+    val wallpaperPalettes = listOf(listOf(Color(0xFF26375D), Color(0xFF10182D), Color(0xFF070A12)), listOf(Color(0xFF4B2C70), Color(0xFF211536), Color(0xFF090711)), listOf(Color(0xFF075B68), Color(0xFF102D42), Color(0xFF070D18)), listOf(Color(0xFF6A3B35), Color(0xFF30202B), Color(0xFF0B0B12)))
+    val background = Brush.verticalGradient(colors = wallpaperPalettes[wallpaperStyle])
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -427,6 +427,8 @@ private fun LumaLauncher(
                     gridColumns = gridColumns,
                     iconSize = iconSize,
                     showAppLabels = showAppLabels,
+                    wallpaperStyle = wallpaperStyle,
+                    onWallpaperStyleChange = { wallpaperStyle = it; prefs.edit().putInt("wallpaper_style", it).apply() },
                     onGridColumnsChange = { gridColumns = it; prefs.edit().putInt("grid_columns", it).apply() },
                     onIconSizeChange = { iconSize = it; prefs.edit().putInt("icon_size", it).apply() },
                     onShowLabelsChange = { showAppLabels = it; prefs.edit().putBoolean("show_app_labels", it).apply() },
@@ -752,6 +754,8 @@ private fun LauncherSettingsPage(
     gridColumns: Int,
     iconSize: Int,
     showAppLabels: Boolean,
+    wallpaperStyle: Int,
+    onWallpaperStyleChange: (Int) -> Unit,
     onGridColumnsChange: (Int) -> Unit,
     onIconSizeChange: (Int) -> Unit,
     onShowLabelsChange: (Boolean) -> Unit,
@@ -776,6 +780,16 @@ private fun LauncherSettingsPage(
             Text("Icon size", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text("$iconSize dp", color = Color(0xFFD4DCEE), fontSize = 12.sp)
             androidx.compose.material3.Slider(value = iconSize.toFloat(), onValueChange = { onIconSizeChange(it.toInt()) }, valueRange = 48f..76f)
+        }
+        Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(16.dp)) {
+            Text("Wallpaper style", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text("Choose a premium gradient for your home screen.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+            listOf("Midnight Blue", "Royal Purple", "Ocean Teal", "Warm Sunset").forEachIndexed { index, name ->
+                Row(modifier = Modifier.fillMaxWidth().clickable { onWallpaperStyleChange(index) }.padding(vertical = 9.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(name, color = Color.White, fontSize = 14.sp)
+                    if (wallpaperStyle == index) Text("Selected", color = Color(0xFFB9C9FF), fontSize = 12.sp)
+                }
+            }
         }
         Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).clickable { onShowLabelsChange(!showAppLabels) }.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
