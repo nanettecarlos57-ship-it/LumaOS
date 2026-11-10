@@ -67,6 +67,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -253,6 +254,7 @@ private fun LumaLauncher(
     onSaveFolders: (List<AppFolder>) -> Unit,
     onOpenSystemSettings: (String) -> Unit
 ) {
+    val context = LocalContext.current
     var showLibrary by remember { mutableStateOf(false) }
     var showControlCenter by remember { mutableStateOf(false) }
     var showLockScreen by remember { mutableStateOf(false) }
@@ -337,7 +339,7 @@ private fun LumaLauncher(
                 4 -> NotificationCenter(
                     notifications = NotificationStore.notifications,
                     onBack = { showNotificationCenter = false },
-                    onEnableAccess = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                    onEnableAccess = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
                     onClear = { NotificationStore.clear() }
                 )
                 else -> HomeScreen(
@@ -664,7 +666,8 @@ private fun NotificationCenter(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(bottom = 20.dp)
             ) {
-                items(notifications, key = { it.id }) { item ->
+                items(count = notifications.size, key = { index -> notifications[index].id }) { index ->
+                    val item = notifications[index]
                     Column(
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
                             .background(Color.White.copy(alpha = 0.13f)).padding(15.dp)
