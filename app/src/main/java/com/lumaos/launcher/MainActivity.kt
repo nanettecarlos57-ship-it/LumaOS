@@ -1,5 +1,8 @@
 package com.lumaos.launcher
 
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetHostView
+import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas as AndroidCanvas
@@ -7,6 +10,7 @@ import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
@@ -107,10 +111,15 @@ class MainActivity : ComponentActivity() {
     private var launcherApps by mutableStateOf<List<LauncherApp>>(emptyList())
     private var homeOrder by mutableStateOf<List<String>>(emptyList())
     private var folders by mutableStateOf<List<AppFolder>>(emptyList())
+    private val appWidgetHost by lazy { AppWidgetHost(this, 1024) }
+    private val appWidgetManager by lazy { AppWidgetManager.getInstance(this) }
+    private var widgetIds by mutableStateOf<List<Int>>(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         loadHomeLayout()
+        widgetIds = getSharedPreferences("luma_widgets", MODE_PRIVATE).getString("ids", "")!!
+            .split(",").mapNotNull { it.toIntOrNull() }
         refreshInstalledApps()
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = android.graphics.Color.rgb(8, 12, 24)
@@ -127,10 +136,66 @@ class MainActivity : ComponentActivity() {
                     onLaunchApp = ::launchApp,
                     onSaveLayout = ::saveHomeOrder,
                     onSaveFolders = ::saveFolders,
-                    onOpenSystemSettings = ::openSystemSettings
+                    onOpenSystemSettings = ::openSystemSettings,
+                    widgetIds = widgetIds,
+                    widgetHost = appWidgetHost,
+                    widgetManager = appWidgetManager,
+                    onAddWidget = ::pickWidget,
+                    onRemoveWidget = ::removeWidget
                 )
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        runCatching { appWidgetHost.startListening() }
+    }
+
+    override fun onStop() {
+        runCatching { appWidgetHost.stopListening() }
+        super.onStop()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_WIDGET_PICK) {
+            val id = data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+                ?: AppWidgetManager.INVALID_APPWIDGET_ID
+            if (resultCode == RESULT_OK && id != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                val info = appWidgetManager.getAppWidgetInfo(id)
+                if (info?.configure != null) {
+                    val configure = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).setComponent(info.configure)
+                        .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                    startActivityForResult(configure, REQUEST_WIDGET_CONFIGURE)
+                } else addWidgetId(id)
+            } else if (id != AppWidgetManager.INVALID_APPWIDGET_ID) appWidgetHost.deleteAppWidgetId(id)
+        } else if (requestCode == REQUEST_WIDGET_CONFIGURE) {
+            val id = data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+                ?: AppWidgetManager.INVALID_APPWIDGET_ID
+            if (resultCode == RESULT_OK && id != AppWidgetManager.INVALID_APPWIDGET_ID) addWidgetId(id)
+            else if (id != AppWidgetManager.INVALID_APPWIDGET_ID) appWidgetHost.deleteAppWidgetId(id)
+        }
+    }
+
+    private fun addWidgetId(id: Int) {
+        widgetIds = (widgetIds + id).distinct()
+        getSharedPreferences("luma_widgets", MODE_PRIVATE).edit()
+            .putString("ids", widgetIds.joinToString(",")).apply()
+    }
+
+    private fun pickWidget() {
+        val id = appWidgetHost.allocateAppWidgetId()
+        val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_PICK)
+            .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+        startActivityForResult(intent, REQUEST_WIDGET_PICK)
+    }
+
+    private fun removeWidget(id: Int) {
+        widgetIds = widgetIds.filterNot { it == id }
+        getSharedPreferences("luma_widgets", MODE_PRIVATE).edit()
+            .putString("ids", widgetIds.joinToString(",")).apply()
+        appWidgetHost.deleteAppWidgetId(id)
     }
 
     override fun onResume() {
@@ -175,6 +240,11 @@ class MainActivity : ComponentActivity() {
         }
         getSharedPreferences("luma_home_layout", MODE_PRIVATE)
             .edit().putString("folders", array.toString()).apply()
+    }
+
+    companion object {
+        private const val REQUEST_WIDGET_PICK = 4101
+        private const val REQUEST_WIDGET_CONFIGURE = 4102
     }
 
     private fun openSystemSettings(section: String) {
@@ -252,13 +322,19 @@ private fun LumaLauncher(
     onLaunchApp: (String) -> Unit,
     onSaveLayout: (List<String>) -> Unit,
     onSaveFolders: (List<AppFolder>) -> Unit,
-    onOpenSystemSettings: (String) -> Unit
+    onOpenSystemSettings: (String) -> Unit,
+    widgetIds: List<Int>,
+    widgetHost: AppWidgetHost,
+    widgetManager: AppWidgetManager,
+    onAddWidget: () -> Unit,
+    onRemoveWidget: (Int) -> Unit
 ) {
     val context = LocalContext.current
     var showLibrary by remember { mutableStateOf(false) }
     var showControlCenter by remember { mutableStateOf(false) }
     var showLockScreen by remember { mutableStateOf(false) }
     var showNotificationCenter by remember { mutableStateOf(false) }
+    var showWidgets by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var clock by remember { mutableStateOf(currentTime()) }
     val background = Brush.verticalGradient(
@@ -272,7 +348,7 @@ private fun LumaLauncher(
         }
     }
 
-    BackHandler(enabled = showLibrary || showControlCenter || showLockScreen || showNotificationCenter) {
+    BackHandler(enabled = showLibrary || showControlCenter || showLockScreen || showNotificationCenter || showWidgets) {
         if (showLibrary) {
             showLibrary = false
             searchQuery = ""
@@ -280,8 +356,10 @@ private fun LumaLauncher(
             showControlCenter = false
         } else if (showLockScreen) {
             showLockScreen = false
-        } else {
+        } else if (showNotificationCenter) {
             showNotificationCenter = false
+        } else {
+            showWidgets = false
         }
     }
 
@@ -318,6 +396,7 @@ private fun LumaLauncher(
                 showControlCenter -> 2
                 showLockScreen -> 3
                 showNotificationCenter -> 4
+                showWidgets -> 5
                 else -> 0
             },
             transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -336,6 +415,14 @@ private fun LumaLauncher(
                     onOpenSystemSettings = onOpenSystemSettings
                 )
                 3 -> LockScreenPreview(clock = clock, onBack = { showLockScreen = false })
+                5 -> WidgetsPage(
+                    widgetIds = widgetIds,
+                    host = widgetHost,
+                    manager = widgetManager,
+                    onAdd = onAddWidget,
+                    onRemove = onRemoveWidget,
+                    onBack = { showWidgets = false }
+                )
                 4 -> NotificationCenter(
                     notifications = NotificationStore.notifications,
                     onBack = { showNotificationCenter = false },
@@ -352,6 +439,7 @@ private fun LumaLauncher(
                     onOpenControlCenter = { showControlCenter = true },
                     onOpenLockScreen = { showLockScreen = true },
                     onOpenNotifications = { showNotificationCenter = true },
+                    onOpenWidgets = { showWidgets = true },
                     onSaveLayout = onSaveLayout,
                     onSaveFolders = onSaveFolders
                 )
@@ -371,6 +459,7 @@ private fun HomeScreen(
     onOpenControlCenter: () -> Unit,
     onOpenLockScreen: () -> Unit,
     onOpenNotifications: () -> Unit,
+    onOpenWidgets: () -> Unit,
     onSaveLayout: (List<String>) -> Unit,
     onSaveFolders: (List<AppFolder>) -> Unit
 ) {
@@ -417,6 +506,7 @@ private fun HomeScreen(
             Text("LumaOS", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Notifications", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenNotifications))
+                Text("Widgets", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenWidgets))
                 Text("Lock Screen", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenLockScreen))
                 Text("Control Center", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenControlCenter))
             }
@@ -628,6 +718,75 @@ private fun HomeScreen(
 
 
 
+
+@Composable
+private fun WidgetsPage(
+    widgetIds: List<Int>,
+    host: AppWidgetHost,
+    manager: AppWidgetManager,
+    onAdd: () -> Unit,
+    onRemove: (Int) -> Unit,
+    onBack: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Widgets", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+            Text("Done", color = Color(0xFFB9C9FF), modifier = Modifier.clickable(onClick = onBack))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("Add real widgets from apps installed on your phone.", color = Color(0xFFD4DCEE), fontSize = 13.sp)
+        Spacer(Modifier.height(14.dp))
+        androidx.compose.material3.Button(onClick = onAdd) { Text("＋  Add widget") }
+        Spacer(Modifier.height(12.dp))
+        if (widgetIds.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(22.dp))
+                    .background(Color.White.copy(alpha = 0.10f)).padding(20.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Your widget space is empty. Tap Add widget to choose a clock, calendar, weather, or another widget provided by an installed app.", color = Color(0xFFD4DCEE), textAlign = TextAlign.Center, fontSize = 13.sp)
+            }
+        } else {
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(bottom = 24.dp)
+            ) {
+                items(widgetIds, key = { it }) { id ->
+                    val info = manager.getAppWidgetInfo(id)
+                    Column(
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+                            .background(Color.White.copy(alpha = 0.10f)).padding(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(info?.loadLabel(host.context.packageManager) ?: "App widget", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Remove", color = Color(0xFFFFB4B4), fontSize = 12.sp, modifier = Modifier.clickable { onRemove(id) }.padding(6.dp))
+                        }
+                        if (info != null) {
+                            val widgetHeight = info.minHeight.coerceAtLeast(120).coerceAtMost(420)
+                            AndroidView(
+                                factory = { ctx ->
+                                    host.createView(ctx, id, info).apply { setAppWidget(id, info) }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(widgetHeight.dp)
+                            )
+                        } else {
+                            Text("This widget is no longer available. Remove it and add another.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun NotificationCenter(
