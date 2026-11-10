@@ -376,7 +376,7 @@ private fun LumaLauncher(
         }
     }
 
-    BackHandler(enabled = showLibrary || showControlCenter || showLockScreen || showNotificationCenter || showWidgets || showSettings) {
+    BackHandler(enabled = showLibrary || showControlCenter || showLockScreen || showNotificationCenter || showWidgets || showSettings || showCallLogs) {
         if (showLibrary) {
             showLibrary = false
             searchQuery = ""
@@ -388,6 +388,8 @@ private fun LumaLauncher(
             showNotificationCenter = false
         } else if (showWidgets) {
             showWidgets = false
+        } else if (showCallLogs) {
+            showCallLogs = false
         } else {
             showSettings = false
         }
@@ -808,7 +810,27 @@ private fun LauncherSettingsPage(
             Text("Home Screen Settings", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text("Done", color = Color(0xFFB9C9FF), modifier = Modifier.clickable(onClick = onBack))
         }
-        Text("Personalise the look and spacing of your LumaOS home screen.", color = Color(0xFFD4DCEE), fontSize = 13.sp)
+        Text("Personalise the look, typography and spacing of your LumaOS home screen.", color = Color(0xFFD4DCEE), fontSize = 13.sp)
+        Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(16.dp)) {
+            Text("Interface theme", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text("Choose the overall look of LumaOS.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+            listOf("Midnight", "AMOLED Black", "Royal Purple", "Ocean Teal").forEachIndexed { index, name ->
+                Row(modifier = Modifier.fillMaxWidth().clickable { onThemeStyleChange(index) }.padding(vertical = 9.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(name, color = Color.White, fontSize = 14.sp)
+                    if (themeStyle == index) Text("Selected", color = Color(0xFFB9C9FF), fontSize = 12.sp)
+                }
+            }
+        }
+        Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(16.dp)) {
+            Text("Font style", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text("Choose the typeface used throughout the launcher.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+            listOf("System", "Serif", "Monospace").forEachIndexed { index, name ->
+                Row(modifier = Modifier.fillMaxWidth().clickable { onFontStyleChange(index) }.padding(vertical = 9.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(name, color = Color.White, fontSize = 14.sp, fontFamily = when(index) { 1 -> FontFamily.Serif; 2 -> FontFamily.Monospace; else -> FontFamily.Default })
+                    if (fontStyle == index) Text("Selected", color = Color(0xFFB9C9FF), fontSize = 12.sp)
+                }
+            }
+        }
         Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(16.dp)) {
             Text("App grid", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text("Choose how many icons appear in each row.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
@@ -845,6 +867,81 @@ private fun LauncherSettingsPage(
             androidx.compose.material3.Switch(checked = showAppLabels, onCheckedChange = onShowLabelsChange)
         }
     }
+}
+
+@Composable
+private fun CallLogsPage(
+    calls: List<LumaCall>,
+    hasPermission: Boolean,
+    onRequestPermission: () -> Unit,
+    onRefresh: () -> Unit,
+    onBack: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Call History", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+            Text("Done", color = Color(0xFFB9C9FF), modifier = Modifier.clickable(onClick = onBack))
+        }
+        Text("Recent calls stored by your phone", color = Color(0xFFD4DCEE), fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp, bottom = 14.dp))
+        if (!hasPermission) {
+            Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(18.dp)) {
+                Text("Call log permission needed", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                Text("Allow access only if you want LumaOS to display your recent call history. Your call records stay on this device and are not uploaded by this feature.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+                TextButton(onClick = onRequestPermission) { Text("Allow call log access") }
+                Text("Note: READ_CALL_LOG is a restricted permission under Google Play policy. Publishing this feature may require Google Play approval or an eligible permitted use.", color = Color(0xFFFFD28A), fontSize = 11.sp)
+            }
+        } else {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onRefresh) { Text("Refresh") }
+            }
+            if (calls.isEmpty()) {
+                Text("No recent calls found.", color = Color(0xFFD4DCEE), fontSize = 13.sp)
+            } else {
+                androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+                    items(calls) { call ->
+                        val kind = when (call.type) {
+                            CallLog.Calls.INCOMING_TYPE -> "Incoming"
+                            CallLog.Calls.OUTGOING_TYPE -> "Outgoing"
+                            CallLog.Calls.MISSED_TYPE -> "Missed"
+                            CallLog.Calls.REJECTED_TYPE -> "Rejected"
+                            CallLog.Calls.BLOCKED_TYPE -> "Blocked"
+                            else -> "Call"
+                        }
+                        Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.12f)).padding(14.dp)) {
+                            Text(call.number.ifBlank { "Unknown number" }, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                            Text(kind, color = if (call.type == CallLog.Calls.MISSED_TYPE) Color(0xFFFFA6A6) else Color(0xFFB9C9FF), fontSize = 12.sp)
+                            Text(SimpleDateFormat("EEE, d MMM • h:mm a", Locale.getDefault()).format(Date(call.date)) + "  •  " + (call.duration / 60) + "m " + (call.duration % 60) + "s", color = Color(0xFFD4DCEE), fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun readLumaCallLogs(context: android.content.Context): List<LumaCall> {
+    if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) return emptyList()
+    val result = mutableListOf<LumaCall>()
+    runCatching {
+        context.contentResolver.query(CallLog.Calls.CONTENT_URI,
+            arrayOf(CallLog.Calls.NUMBER, CallLog.Calls.TYPE, CallLog.Calls.DATE, CallLog.Calls.DURATION),
+            null, null, CallLog.Calls.DATE + " DESC")?.use { cursor ->
+            val number = cursor.getColumnIndex(CallLog.Calls.NUMBER)
+            val type = cursor.getColumnIndex(CallLog.Calls.TYPE)
+            val date = cursor.getColumnIndex(CallLog.Calls.DATE)
+            val duration = cursor.getColumnIndex(CallLog.Calls.DURATION)
+            while (cursor.moveToNext() && result.size < 100) {
+                result.add(LumaCall(
+                    number = if (number >= 0) cursor.getString(number).orEmpty() else "",
+                    type = if (type >= 0) cursor.getInt(type) else 0,
+                    date = if (date >= 0) cursor.getLong(date) else 0L,
+                    duration = if (duration >= 0) cursor.getLong(duration) else 0L
+                ))
+            }
+        }
+    }
+    return result
 }
 
 @Composable
