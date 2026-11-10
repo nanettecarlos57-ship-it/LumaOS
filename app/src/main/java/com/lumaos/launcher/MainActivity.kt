@@ -335,6 +335,11 @@ private fun LumaLauncher(
     var showLockScreen by remember { mutableStateOf(false) }
     var showNotificationCenter by remember { mutableStateOf(false) }
     var showWidgets by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    val prefs = remember { context.getSharedPreferences("luma_preferences", android.content.Context.MODE_PRIVATE) }
+    var gridColumns by remember { mutableStateOf(prefs.getInt("grid_columns", 4).coerceIn(3, 5)) }
+    var iconSize by remember { mutableStateOf(prefs.getInt("icon_size", 60).coerceIn(48, 76)) }
+    var showAppLabels by remember { mutableStateOf(prefs.getBoolean("show_app_labels", true)) }
     var searchQuery by remember { mutableStateOf("") }
     var clock by remember { mutableStateOf(currentTime()) }
     val background = Brush.verticalGradient(
@@ -348,7 +353,7 @@ private fun LumaLauncher(
         }
     }
 
-    BackHandler(enabled = showLibrary || showControlCenter || showLockScreen || showNotificationCenter || showWidgets) {
+    BackHandler(enabled = showLibrary || showControlCenter || showLockScreen || showNotificationCenter || showWidgets || showSettings) {
         if (showLibrary) {
             showLibrary = false
             searchQuery = ""
@@ -358,8 +363,10 @@ private fun LumaLauncher(
             showLockScreen = false
         } else if (showNotificationCenter) {
             showNotificationCenter = false
-        } else {
+        } else if (showWidgets) {
             showWidgets = false
+        } else {
+            showSettings = false
         }
     }
 
@@ -397,6 +404,7 @@ private fun LumaLauncher(
                 showLockScreen -> 3
                 showNotificationCenter -> 4
                 showWidgets -> 5
+                showSettings -> 6
                 else -> 0
             },
             transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -415,6 +423,15 @@ private fun LumaLauncher(
                     onOpenSystemSettings = onOpenSystemSettings
                 )
                 3 -> LockScreenPreview(clock = clock, onBack = { showLockScreen = false })
+                6 -> LauncherSettingsPage(
+                    gridColumns = gridColumns,
+                    iconSize = iconSize,
+                    showAppLabels = showAppLabels,
+                    onGridColumnsChange = { gridColumns = it; prefs.edit().putInt("grid_columns", it).apply() },
+                    onIconSizeChange = { iconSize = it; prefs.edit().putInt("icon_size", it).apply() },
+                    onShowLabelsChange = { showAppLabels = it; prefs.edit().putBoolean("show_app_labels", it).apply() },
+                    onBack = { showSettings = false }
+                )
                 5 -> WidgetsPage(
                     widgetIds = widgetIds,
                     host = widgetHost,
@@ -440,6 +457,10 @@ private fun LumaLauncher(
                     onOpenLockScreen = { showLockScreen = true },
                     onOpenNotifications = { showNotificationCenter = true },
                     onOpenWidgets = { showWidgets = true },
+                    onOpenSettings = { showSettings = true },
+                    gridColumns = gridColumns,
+                    iconSize = iconSize,
+                    showAppLabels = showAppLabels,
                     onSaveLayout = onSaveLayout,
                     onSaveFolders = onSaveFolders
                 )
@@ -460,6 +481,10 @@ private fun HomeScreen(
     onOpenLockScreen: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenWidgets: () -> Unit,
+    onOpenSettings: () -> Unit,
+    gridColumns: Int,
+    iconSize: Int,
+    showAppLabels: Boolean,
     onSaveLayout: (List<String>) -> Unit,
     onSaveFolders: (List<AppFolder>) -> Unit
 ) {
@@ -505,6 +530,7 @@ private fun HomeScreen(
         ) {
             Text("LumaOS", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Settings", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenSettings))
                 Text("Notifications", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenNotifications))
                 Text("Widgets", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenWidgets))
                 Text("Lock Screen", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenLockScreen))
@@ -525,7 +551,7 @@ private fun HomeScreen(
         Spacer(Modifier.height(28.dp))
 
         LazyVerticalGrid(
-            columns = GridCells.Fixed(4),
+            columns = GridCells.Fixed(gridColumns),
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(bottom = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -536,7 +562,9 @@ private fun HomeScreen(
                     AppIcon(
                         app = tile.app,
                         onClick = { onLaunchApp(tile.app.packageName) },
-                        onLongClick = { selectedTile = tile }
+                        onLongClick = { selectedTile = tile },
+                        iconSize = iconSize,
+                        showLabel = showAppLabels
                     )
                 } else if (tile.folder != null) {
                     FolderIcon(
@@ -718,6 +746,46 @@ private fun HomeScreen(
 
 
 
+
+@Composable
+private fun LauncherSettingsPage(
+    gridColumns: Int,
+    iconSize: Int,
+    showAppLabels: Boolean,
+    onGridColumnsChange: (Int) -> Unit,
+    onIconSizeChange: (Int) -> Unit,
+    onShowLabelsChange: (Boolean) -> Unit,
+    onBack: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Home Screen Settings", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("Done", color = Color(0xFFB9C9FF), modifier = Modifier.clickable(onClick = onBack))
+        }
+        Text("Personalise the look and spacing of your LumaOS home screen.", color = Color(0xFFD4DCEE), fontSize = 13.sp)
+        Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(16.dp)) {
+            Text("App grid", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text("Choose how many icons appear in each row.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 12.dp)) {
+                (3..5).forEach { count ->
+                    androidx.compose.material3.FilterChip(selected = gridColumns == count, onClick = { onGridColumnsChange(count) }, label = { Text("$count columns") })
+                }
+            }
+        }
+        Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(16.dp)) {
+            Text("Icon size", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text("$iconSize dp", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+            androidx.compose.material3.Slider(value = iconSize.toFloat(), onValueChange = { onIconSizeChange(it.toInt()) }, valueRange = 48f..76f)
+        }
+        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).clickable { onShowLabelsChange(!showAppLabels) }.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column {
+                Text("Show app names", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text("Display or hide labels below app icons.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+            }
+            androidx.compose.material3.Switch(checked = showAppLabels, onCheckedChange = onShowLabelsChange)
+        }
+    }
+}
 
 @Composable
 private fun WidgetsPage(
@@ -1115,7 +1183,9 @@ private fun AppLibrary(
 private fun AppIcon(
     app: LauncherApp,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null,
+    iconSize: Int = 60,
+    showLabel: Boolean = true
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1129,18 +1199,14 @@ private fun AppIcon(
             contentDescription = app.label,
             contentScale = ContentScale.Fit,
             modifier = Modifier
-                .size(60.dp)
+                .size(iconSize.dp)
                 .shadow(5.dp, RoundedCornerShape(18.dp))
                 .clip(RoundedCornerShape(18.dp))
         )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            app.label,
-            color = Color.White,
-            fontSize = 11.sp,
-            maxLines = 1,
-            textAlign = TextAlign.Center
-        )
+        if (showLabel) {
+            Spacer(Modifier.height(6.dp))
+            Text(app.label, color = Color.White, fontSize = 11.sp, maxLines = 1, textAlign = TextAlign.Center)
+        }
     }
 }
 
