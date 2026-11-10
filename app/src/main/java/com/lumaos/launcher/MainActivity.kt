@@ -3,6 +3,9 @@ package com.lumaos.launcher
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
+import android.Manifest
+import android.content.pm.PackageManager
+import android.provider.CallLog
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -14,6 +17,7 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.activity.compose.BackHandler
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
@@ -65,6 +69,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,11 +87,13 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.LocalTextStyle
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
@@ -100,6 +107,8 @@ private data class LauncherApp(
     val icon: ImageBitmap,
     val isSystem: Boolean
 )
+
+private data class LumaCall(val number: String, val type: Int, val date: Long, val duration: Long)
 
 private data class AppFolder(
     val id: String,
@@ -343,11 +352,20 @@ private fun LumaLauncher(
     var showNotificationCenter by remember { mutableStateOf(false) }
     var showWidgets by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showCallLogs by remember { mutableStateOf(false) }
+    var callLogs by remember { mutableStateOf<List<LumaCall>>(emptyList()) }
+    var callLogPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED) }
+    val callLogPermissionRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        callLogPermission = granted
+        if (granted) callLogs = readLumaCallLogs(context)
+    }
     val prefs = remember { context.getSharedPreferences("luma_preferences", android.content.Context.MODE_PRIVATE) }
     var gridColumns by remember { mutableStateOf(prefs.getInt("grid_columns", 4).coerceIn(3, 5)) }
     var iconSize by remember { mutableStateOf(prefs.getInt("icon_size", 60).coerceIn(48, 76)) }
     var showAppLabels by remember { mutableStateOf(prefs.getBoolean("show_app_labels", true)) }
     var wallpaperStyle by remember { mutableStateOf(prefs.getInt("wallpaper_style", 0).coerceIn(0, 3)) }
+    var themeStyle by remember { mutableStateOf(prefs.getInt("theme_style", 0).coerceIn(0, 3)) }
+    var fontStyle by remember { mutableStateOf(prefs.getInt("font_style", 0).coerceIn(0, 2)) }
     var customWallpaperUri by remember { mutableStateOf(prefs.getString("custom_wallpaper_uri", null)) }
     val wallpaperPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -367,7 +385,14 @@ private fun LumaLauncher(
     var librarySortDescending by remember { mutableStateOf(prefs.getBoolean("library_sort_descending", false)) }
     var clock by remember { mutableStateOf(currentTime()) }
     val wallpaperPalettes = listOf(listOf(Color(0xFF26375D), Color(0xFF10182D), Color(0xFF070A12)), listOf(Color(0xFF4B2C70), Color(0xFF211536), Color(0xFF090711)), listOf(Color(0xFF075B68), Color(0xFF102D42), Color(0xFF070D18)), listOf(Color(0xFF6A3B35), Color(0xFF30202B), Color(0xFF0B0B12)))
-    val background = Brush.verticalGradient(colors = wallpaperPalettes[wallpaperStyle])
+    val themePalettes = listOf(
+        listOf(Color(0xFF26375D), Color(0xFF10182D), Color(0xFF070A12)),
+        listOf(Color(0xFF101010), Color(0xFF050505), Color.Black),
+        listOf(Color(0xFF4B2C70), Color(0xFF211536), Color(0xFF090711)),
+        listOf(Color(0xFF075B68), Color(0xFF102D42), Color(0xFF070D18))
+    )
+    val background = Brush.verticalGradient(colors = themePalettes[themeStyle])
+    val selectedFont = when (fontStyle) { 1 -> FontFamily.Serif; 2 -> FontFamily.Monospace; else -> FontFamily.Default }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -395,6 +420,7 @@ private fun LumaLauncher(
         }
     }
 
+    CompositionLocalProvider(LocalTextStyle provides LocalTextStyle.current.copy(fontFamily = selectedFont)) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -434,6 +460,7 @@ private fun LumaLauncher(
                 showNotificationCenter -> 4
                 showWidgets -> 5
                 showSettings -> 6
+                showCallLogs -> 7
                 else -> 0
             },
             transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -459,6 +486,10 @@ private fun LumaLauncher(
                 )
                 3 -> LockScreenPreview(clock = clock, onBack = { showLockScreen = false })
                 6 -> LauncherSettingsPage(
+                    themeStyle = themeStyle,
+                    fontStyle = fontStyle,
+                    onThemeStyleChange = { themeStyle = it; prefs.edit().putInt("theme_style", it).apply() },
+                    onFontStyleChange = { fontStyle = it; prefs.edit().putInt("font_style", it).apply() },
                     gridColumns = gridColumns,
                     iconSize = iconSize,
                     showAppLabels = showAppLabels,
@@ -471,6 +502,13 @@ private fun LumaLauncher(
                     onIconSizeChange = { iconSize = it; prefs.edit().putInt("icon_size", it).apply() },
                     onShowLabelsChange = { showAppLabels = it; prefs.edit().putBoolean("show_app_labels", it).apply() },
                     onBack = { showSettings = false }
+                )
+                7 -> CallLogsPage(
+                    calls = callLogs,
+                    hasPermission = callLogPermission,
+                    onRequestPermission = { callLogPermissionRequest.launch(Manifest.permission.READ_CALL_LOG) },
+                    onRefresh = { callLogs = readLumaCallLogs(context) },
+                    onBack = { showCallLogs = false }
                 )
                 5 -> WidgetsPage(
                     widgetIds = widgetIds,
@@ -499,6 +537,11 @@ private fun LumaLauncher(
                     onOpenNotifications = { showNotificationCenter = true },
                     onOpenWidgets = { showWidgets = true },
                     onOpenSettings = { showSettings = true },
+                    onOpenCallLogs = {
+                        callLogPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
+                        if (callLogPermission) callLogs = readLumaCallLogs(context)
+                        showCallLogs = true
+                    },
                     gridColumns = gridColumns,
                     iconSize = iconSize,
                     showAppLabels = showAppLabels,
@@ -507,6 +550,7 @@ private fun LumaLauncher(
                 )
             }
         }
+    }
     }
 }
 
@@ -524,6 +568,7 @@ private fun HomeScreen(
     onOpenNotifications: () -> Unit,
     onOpenWidgets: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenCallLogs: () -> Unit,
     gridColumns: Int,
     iconSize: Int,
     showAppLabels: Boolean,
@@ -573,6 +618,7 @@ private fun HomeScreen(
             Text("LumaOS", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Settings", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenSettings))
+                Text("Call Logs", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenCallLogs))
                 Text("Notifications", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenNotifications))
                 Text("Widgets", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenWidgets))
                 Text("Lock Screen", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenLockScreen))
@@ -792,6 +838,10 @@ private fun HomeScreen(
 
 @Composable
 private fun LauncherSettingsPage(
+    themeStyle: Int,
+    fontStyle: Int,
+    onThemeStyleChange: (Int) -> Unit,
+    onFontStyleChange: (Int) -> Unit,
     gridColumns: Int,
     iconSize: Int,
     showAppLabels: Boolean,
