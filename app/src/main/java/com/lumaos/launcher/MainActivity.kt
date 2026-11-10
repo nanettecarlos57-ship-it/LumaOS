@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -38,6 +39,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -371,6 +373,7 @@ private fun HomeScreen(
     var newFolderName by remember { mutableStateOf("Folder") }
     var showFolderNameDialog by remember { mutableStateOf(false) }
     var showAppPicker by remember { mutableStateOf(false) }
+    var islandExpanded by remember { mutableStateOf(false) }
 
     fun moveTile(tileId: String, direction: Int) {
         val mutable = visibleOrder.toMutableList()
@@ -392,7 +395,11 @@ private fun HomeScreen(
             Text("LumaOS", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Text("Control Center", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenControlCenter))
         }
-        Spacer(Modifier.height(30.dp))
+        DynamicIsland(
+            expanded = islandExpanded,
+            onClick = { islandExpanded = !islandExpanded }
+        )
+        Spacer(Modifier.height(20.dp))
         Text(clock, color = Color.White, fontSize = 58.sp, fontWeight = FontWeight.Light)
         Text(
             SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(Date()),
@@ -594,6 +601,43 @@ private fun HomeScreen(
 }
 
 
+@Composable
+private fun DynamicIsland(
+    expanded: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .padding(top = 14.dp)
+            .width(if (expanded) 252.dp else 122.dp)
+            .clip(CircleShape)
+            .background(Color.Black)
+            .clickable(onClick = onClick)
+            .animateContentSize()
+            .padding(horizontal = 16.dp, vertical = if (expanded) 13.dp else 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF65D9FF))
+        )
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(
+                if (expanded) "LumaOS Live Activity" else "LumaOS",
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (expanded) {
+                Spacer(Modifier.height(3.dp))
+                Text("Your home screen is ready", color = Color(0xFFB8C4D9), fontSize = 10.sp)
+            }
+        }
+    }
+}
 @Composable
 private fun ControlCenter(
     onBack: () -> Unit,
