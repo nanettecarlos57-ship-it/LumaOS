@@ -4,6 +4,7 @@ import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -19,6 +20,7 @@ data class LumaNotification(
 
 object NotificationStore {
     val notifications = mutableStateListOf<LumaNotification>()
+    val badgeCounts = mutableStateMapOf<String, Int>()
     private val ids = AtomicLong(0)
 
     fun add(item: LumaNotification) {
@@ -28,6 +30,15 @@ object NotificationStore {
     }
 
     fun clear() = notifications.clear()
+
+    fun updateBadgeCounts(active: Array<StatusBarNotification>?) {
+        val counts = active.orEmpty()
+            .filter { it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 }
+            .groupingBy { it.packageName }
+            .eachCount()
+        badgeCounts.clear()
+        badgeCounts.putAll(counts)
+    }
     fun nextId(): Long = ids.incrementAndGet()
 }
 
@@ -35,10 +46,12 @@ class LumaNotificationListener : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         activeNotifications?.forEach(::publishNotification)
+        NotificationStore.updateBadgeCounts(activeNotifications)
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         publishNotification(sbn)
+        NotificationStore.updateBadgeCounts(activeNotifications)
     }
 
     private fun publishNotification(sbn: StatusBarNotification) {
@@ -68,5 +81,6 @@ class LumaNotificationListener : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         // Keep the notification in the center as a recent item until the user clears it.
+        NotificationStore.updateBadgeCounts(activeNotifications)
     }
 }
