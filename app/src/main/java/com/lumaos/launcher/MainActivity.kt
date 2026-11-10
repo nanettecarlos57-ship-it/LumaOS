@@ -391,7 +391,7 @@ private fun LumaLauncher(
         listOf(Color(0xFF4B2C70), Color(0xFF211536), Color(0xFF090711)),
         listOf(Color(0xFF075B68), Color(0xFF102D42), Color(0xFF070D18))
     )
-    val background = Brush.verticalGradient(colors = themePalettes[themeStyle])
+    val background = Brush.verticalGradient(colors = wallpaperPalettes[wallpaperStyle].mapIndexed { index, color -> androidx.compose.ui.graphics.lerp(color, themePalettes[themeStyle][index], 0.45f) })
     val selectedFont = when (fontStyle) { 1 -> FontFamily.Serif; 2 -> FontFamily.Monospace; else -> FontFamily.Default }
 
     LaunchedEffect(Unit) {
@@ -490,6 +490,12 @@ private fun LumaLauncher(
                     fontStyle = fontStyle,
                     onThemeStyleChange = { themeStyle = it; prefs.edit().putInt("theme_style", it).apply() },
                     onFontStyleChange = { fontStyle = it; prefs.edit().putInt("font_style", it).apply() },
+                    onOpenCallLogs = {
+                        showSettings = false
+                        callLogPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
+                        if (callLogPermission) callLogs = readLumaCallLogs(context)
+                        showCallLogs = true
+                    },
                     gridColumns = gridColumns,
                     iconSize = iconSize,
                     showAppLabels = showAppLabels,
@@ -537,11 +543,6 @@ private fun LumaLauncher(
                     onOpenNotifications = { showNotificationCenter = true },
                     onOpenWidgets = { showWidgets = true },
                     onOpenSettings = { showSettings = true },
-                    onOpenCallLogs = {
-                        callLogPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
-                        if (callLogPermission) callLogs = readLumaCallLogs(context)
-                        showCallLogs = true
-                    },
                     gridColumns = gridColumns,
                     iconSize = iconSize,
                     showAppLabels = showAppLabels,
@@ -568,7 +569,6 @@ private fun HomeScreen(
     onOpenNotifications: () -> Unit,
     onOpenWidgets: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenCallLogs: () -> Unit,
     gridColumns: Int,
     iconSize: Int,
     showAppLabels: Boolean,
@@ -618,7 +618,6 @@ private fun HomeScreen(
             Text("LumaOS", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Settings", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenSettings))
-                Text("Call Logs", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenCallLogs))
                 Text("Notifications", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenNotifications))
                 Text("Widgets", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenWidgets))
                 Text("Lock Screen", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenLockScreen))
@@ -842,6 +841,7 @@ private fun LauncherSettingsPage(
     fontStyle: Int,
     onThemeStyleChange: (Int) -> Unit,
     onFontStyleChange: (Int) -> Unit,
+    onOpenCallLogs: () -> Unit,
     gridColumns: Int,
     iconSize: Int,
     showAppLabels: Boolean,
@@ -861,6 +861,13 @@ private fun LauncherSettingsPage(
             Text("Done", color = Color(0xFFB9C9FF), modifier = Modifier.clickable(onClick = onBack))
         }
         Text("Personalise the look, typography and spacing of your LumaOS home screen.", color = Color(0xFFD4DCEE), fontSize = 13.sp)
+        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).clickable(onClick = onOpenCallLogs).padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column {
+                Text("Call history", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text("View recent incoming, outgoing and missed calls.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+            }
+            Text("Open  ›", color = Color(0xFFB9C9FF), fontSize = 12.sp)
+        }
         Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(16.dp)) {
             Text("Interface theme", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text("Choose the overall look of LumaOS.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
