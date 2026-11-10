@@ -368,6 +368,11 @@ private fun LumaLauncher(
     var fontStyle by remember { mutableStateOf(prefs.getInt("font_style", 0).coerceIn(0, 2)) }
     var customWallpaperUri by remember { mutableStateOf(prefs.getString("custom_wallpaper_uri", null)) }
     var hiddenPackages by remember { mutableStateOf(prefs.getStringSet("hidden_packages", emptySet())?.toSet() ?: emptySet()) }
+    var favoritePackages by remember { mutableStateOf(prefs.getStringSet("favorite_packages", emptySet())?.toSet() ?: emptySet()) }
+    fun toggleFavoriteApp(packageName: String) {
+        favoritePackages = if (packageName in favoritePackages) favoritePackages - packageName else favoritePackages + packageName
+        prefs.edit().putStringSet("favorite_packages", favoritePackages).apply()
+    }
     fun toggleHiddenApp(packageName: String) {
         hiddenPackages = if (packageName in hiddenPackages) hiddenPackages - packageName else hiddenPackages + packageName
         prefs.edit().putStringSet("hidden_packages", hiddenPackages).apply()
@@ -497,6 +502,8 @@ private fun LumaLauncher(
                     apps = apps,
                     hiddenPackages = hiddenPackages,
                     onToggleHidden = ::toggleHiddenApp,
+                    favoritePackages = favoritePackages,
+                    onToggleFavorite = ::toggleFavoriteApp,
                     gridColumns = gridColumns,
                     iconSize = iconSize,
                     showAppLabels = showAppLabels,
@@ -1381,6 +1388,8 @@ private fun AppLibrary(
     apps: List<LauncherApp>,
     hiddenPackages: Set<String>,
     onToggleHidden: (String) -> Unit,
+    favoritePackages: Set<String>,
+    onToggleFavorite: (String) -> Unit,
     gridColumns: Int,
     iconSize: Int,
     showAppLabels: Boolean,
@@ -1400,6 +1409,7 @@ private fun AppLibrary(
             app.label.contains(query, ignoreCase = true) && when (appFilter) {
             "System" -> app.isSystem
             "Downloaded" -> !app.isSystem
+            "Favorites" -> app.packageName in favoritePackages
             else -> true
         }
     }.sortedBy { it.label.lowercase(Locale.getDefault()) }
@@ -1440,7 +1450,7 @@ private fun AppLibrary(
         }
         Spacer(Modifier.height(14.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            listOf("All", "Downloaded", "System").forEach { filter ->
+            listOf("All", "Downloaded", "System", "Favorites").forEach { filter ->
                 val selected = appFilter == filter
                 Text(filter, color = if (selected) Color.White else Color(0xFFB3BED3), fontSize = 12.sp,
                     modifier = Modifier.clip(RoundedCornerShape(18.dp))
@@ -1477,6 +1487,9 @@ private fun AppLibrary(
             text = { Text(if (app.packageName in hiddenPackages) "This app is hidden from your home screen." else if (app.isSystem) "System application" else "Choose an action for this app.") },
             confirmButton = {
                 Row {
+                    TextButton(onClick = { onToggleFavorite(app.packageName); selectedApp = null }) {
+                        Text(if (app.packageName in favoritePackages) "Unfavorite" else "Favorite")
+                    }
                     TextButton(onClick = { onToggleHidden(app.packageName); selectedApp = null }) {
                         Text(if (app.packageName in hiddenPackages) "Unhide" else "Hide")
                     }
