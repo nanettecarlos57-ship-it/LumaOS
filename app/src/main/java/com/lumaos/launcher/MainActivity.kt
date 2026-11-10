@@ -254,6 +254,7 @@ private fun LumaLauncher(
 ) {
     var showLibrary by remember { mutableStateOf(false) }
     var showControlCenter by remember { mutableStateOf(false) }
+    var showLockScreen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var clock by remember { mutableStateOf(currentTime()) }
     val background = Brush.verticalGradient(
@@ -267,12 +268,14 @@ private fun LumaLauncher(
         }
     }
 
-    BackHandler(enabled = showLibrary || showControlCenter) {
+    BackHandler(enabled = showLibrary || showControlCenter || showLockScreen) {
         if (showLibrary) {
             showLibrary = false
             searchQuery = ""
-        } else {
+        } else if (showControlCenter) {
             showControlCenter = false
+        } else {
+            showLockScreen = false
         }
     }
 
@@ -307,6 +310,7 @@ private fun LumaLauncher(
             targetState = when {
                 showLibrary -> 1
                 showControlCenter -> 2
+                showLockScreen -> 3
                 else -> 0
             },
             transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -324,6 +328,7 @@ private fun LumaLauncher(
                     onBack = { showControlCenter = false },
                     onOpenSystemSettings = onOpenSystemSettings
                 )
+                3 -> LockScreenPreview(clock = clock, onBack = { showLockScreen = false })
                 else -> HomeScreen(
                     apps = apps,
                     homeOrder = homeOrder,
@@ -332,6 +337,7 @@ private fun LumaLauncher(
                     onLaunchApp = onLaunchApp,
                     onOpenLibrary = { showLibrary = true },
                     onOpenControlCenter = { showControlCenter = true },
+                    onOpenLockScreen = { showLockScreen = true },
                     onSaveLayout = onSaveLayout,
                     onSaveFolders = onSaveFolders
                 )
@@ -349,6 +355,7 @@ private fun HomeScreen(
     onLaunchApp: (String) -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenControlCenter: () -> Unit,
+    onOpenLockScreen: () -> Unit,
     onSaveLayout: (List<String>) -> Unit,
     onSaveFolders: (List<AppFolder>) -> Unit
 ) {
@@ -393,7 +400,10 @@ private fun HomeScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("LumaOS", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-            Text("Control Center", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenControlCenter))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Lock Screen", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenLockScreen))
+                Text("Control Center", color = Color(0xFFB9C9FF), fontSize = 11.sp, modifier = Modifier.clickable(onClick = onOpenControlCenter))
+            }
         }
         DynamicIsland(
             expanded = islandExpanded,
@@ -600,6 +610,50 @@ private fun HomeScreen(
     }
 }
 
+
+
+@Composable
+private fun LockScreenPreview(clock: String, onBack: () -> Unit) {
+    val date = SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(Date())
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(34.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF536A91), Color(0xFF182641), Color(0xFF080D19))
+                )
+            )
+            .clickable(onClick = onBack)
+            .padding(horizontal = 24.dp, vertical = 34.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(date, color = Color.White.copy(alpha = 0.9f), fontSize = 16.sp)
+            Spacer(Modifier.height(8.dp))
+            Text(clock, color = Color.White, fontSize = 76.sp, fontWeight = FontWeight.ExtraLight)
+            Spacer(Modifier.height(30.dp))
+            Box(
+                modifier = Modifier
+                    .size(74.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.13f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("L", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Light)
+            }
+            Spacer(Modifier.height(18.dp))
+            Text("LumaOS", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+            Text("Your Android. A New Experience.", color = Color(0xFFD7E1F5), fontSize = 11.sp)
+        }
+        Text(
+            "Preview only • Tap anywhere to return",
+            color = Color.White.copy(alpha = 0.75f),
+            fontSize = 11.sp,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
+    }
+}
 
 @Composable
 private fun DynamicIsland(
