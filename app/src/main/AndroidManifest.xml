@@ -10,6 +10,8 @@
 
     <application
         android:allowBackup="true"
+        android:icon="@drawable/luma_launcher_icon"
+        android:roundIcon="@drawable/luma_launcher_icon"
         android:label="LumaOS"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
