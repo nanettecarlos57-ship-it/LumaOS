@@ -1193,6 +1193,7 @@ private fun AppLibrary(
     onBack: () -> Unit
 ) {
     var appFilter by remember { mutableStateOf("All") }
+    var selectedApp by remember { mutableStateOf<LauncherApp?>(null) }
     val filtered = apps.filter { app ->
         app.label.contains(query, ignoreCase = true) && when (appFilter) {
             "System" -> app.isSystem
@@ -1260,9 +1261,32 @@ private fun AppLibrary(
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             items(filtered, key = { it.packageName }) { app ->
-                AppIcon(app = app, onClick = { onLaunchApp(app.packageName) }, iconSize = iconSize, showLabel = showAppLabels, badgeCount = badgeCounts[app.packageName] ?: 0)
+                AppIcon(app = app, onClick = { onLaunchApp(app.packageName) }, onLongClick = { selectedApp = app }, iconSize = iconSize, showLabel = showAppLabels, badgeCount = badgeCounts[app.packageName] ?: 0)
             }
         }
+    }
+    selectedApp?.let { app ->
+        val context = LocalContext.current
+        AlertDialog(
+            onDismissRequest = { selectedApp = null },
+            title = { Text(app.label) },
+            text = { Text(if (app.isSystem) "System application" else "Choose an action for this app.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    selectedApp = null
+                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.packageName}")))
+                }) { Text("App info") }
+            },
+            dismissButton = {
+                Row {
+                    if (!app.isSystem) TextButton(onClick = {
+                        selectedApp = null
+                        context.startActivity(Intent(Intent.ACTION_DELETE, Uri.parse("package:${app.packageName}")))
+                    }) { Text("Uninstall") }
+                    TextButton(onClick = { selectedApp = null }) { Text("Cancel") }
+                }
+            }
+        )
     }
 }
 
