@@ -362,6 +362,7 @@ private fun LumaLauncher(
         }
     }
     var searchQuery by remember { mutableStateOf("") }
+    var librarySortDescending by remember { mutableStateOf(prefs.getBoolean("library_sort_descending", false)) }
     var clock by remember { mutableStateOf(currentTime()) }
     val wallpaperPalettes = listOf(listOf(Color(0xFF26375D), Color(0xFF10182D), Color(0xFF070A12)), listOf(Color(0xFF4B2C70), Color(0xFF211536), Color(0xFF090711)), listOf(Color(0xFF075B68), Color(0xFF102D42), Color(0xFF070D18)), listOf(Color(0xFF6A3B35), Color(0xFF30202B), Color(0xFF0B0B12)))
     val background = Brush.verticalGradient(colors = wallpaperPalettes[wallpaperStyle])
@@ -438,6 +439,8 @@ private fun LumaLauncher(
                 1 -> AppLibrary(
                     apps = apps,
                     query = searchQuery,
+                    sortDescending = librarySortDescending,
+                    onToggleSort = { librarySortDescending = !librarySortDescending; prefs.edit().putBoolean("library_sort_descending", librarySortDescending).apply() },
                     badgeCounts = NotificationStore.badgeCounts,
                     onQueryChange = { searchQuery = it },
                     onLaunchApp = onLaunchApp,
@@ -1175,11 +1178,15 @@ private fun AppLibrary(
     apps: List<LauncherApp>,
     badgeCounts: Map<String, Int>,
     query: String,
+    sortDescending: Boolean,
+    onToggleSort: () -> Unit,
     onQueryChange: (String) -> Unit,
     onLaunchApp: (String) -> Unit,
     onBack: () -> Unit
 ) {
     val filtered = apps.filter { it.label.contains(query, ignoreCase = true) }
+        .sortedBy { it.label.lowercase(Locale.getDefault()) }
+        .let { if (sortDescending) it.reversed() else it }
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1215,7 +1222,10 @@ private fun AppLibrary(
             )
         }
         Spacer(Modifier.height(18.dp))
-        Text("${filtered.size} applications", color = Color(0xFFB3BED3), fontSize = 12.sp)
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("${filtered.size} applications", color = Color(0xFFB3BED3), fontSize = 12.sp)
+            Text(if (sortDescending) "Z–A  ↓" else "A–Z  ↑", color = Color(0xFFB9C9FF), fontSize = 12.sp, modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onToggleSort).padding(horizontal = 12.dp, vertical = 7.dp))
+        }
         Spacer(Modifier.height(12.dp))
         LazyVerticalGrid(
             columns = GridCells.Fixed(4),
