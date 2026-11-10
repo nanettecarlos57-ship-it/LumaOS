@@ -376,6 +376,27 @@ private fun LumaLauncher(
             prefs.edit().putString("custom_wallpaper_uri", uri.toString()).apply()
         }
     }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val openIntent = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, context.contentResolver.getType(uri) ?: "*/*")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            runCatching { context.startActivity(Intent.createChooser(openIntent, "Open file with")) }
+        }
+    }
+    fun requestDefaultLauncher() {
+        runCatching {
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
+                if (roleManager != null && roleManager.isRoleAvailable(android.app.role.RoleManager.ROLE_HOME)) {
+                    context.startActivity(roleManager.createRequestRoleIntent(android.app.role.RoleManager.ROLE_HOME))
+                } else context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
+            } else context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
+        }.onFailure { runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS)) } }
+    }
     val customWallpaper = remember(customWallpaperUri) {
         customWallpaperUri?.let { value ->
             runCatching { context.contentResolver.openInputStream(Uri.parse(value))?.use(BitmapFactory::decodeStream)?.asImageBitmap() }.getOrNull()
@@ -496,6 +517,8 @@ private fun LumaLauncher(
                         if (callLogPermission) callLogs = readLumaCallLogs(context)
                         showCallLogs = true
                     },
+                    onSetDefaultLauncher = ::requestDefaultLauncher,
+                    onBrowseFiles = { filePicker.launch(arrayOf("*/*")) },
                     gridColumns = gridColumns,
                     iconSize = iconSize,
                     showAppLabels = showAppLabels,
@@ -842,6 +865,8 @@ private fun LauncherSettingsPage(
     onThemeStyleChange: (Int) -> Unit,
     onFontStyleChange: (Int) -> Unit,
     onOpenCallLogs: () -> Unit,
+    onSetDefaultLauncher: () -> Unit,
+    onBrowseFiles: () -> Unit,
     gridColumns: Int,
     iconSize: Int,
     showAppLabels: Boolean,
@@ -861,6 +886,16 @@ private fun LauncherSettingsPage(
             Text("Done", color = Color(0xFFB9C9FF), modifier = Modifier.clickable(onClick = onBack))
         }
         Text("Personalise the look, typography and spacing of your LumaOS home screen.", color = Color(0xFFD4DCEE), fontSize = 13.sp)
+        Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Make LumaOS your default", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text("Choose LumaOS as the Home app so pressing your phone's Home button opens this launcher.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+            androidx.compose.material3.Button(onClick = onSetDefaultLauncher) { Text("Set as default launcher") }
+        }
+        Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("File access", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text("Browse files, photos and documents using Android's secure file picker. LumaOS only receives access to files you select.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+            androidx.compose.material3.OutlinedButton(onClick = onBrowseFiles) { Text("Browse files") }
+        }
         Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).clickable(onClick = onOpenCallLogs).padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
                 Text("Call history", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
