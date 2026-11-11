@@ -672,6 +672,7 @@ private fun LumaLauncher(
         }
     }
     }
+    }
 }
 
 @Composable
