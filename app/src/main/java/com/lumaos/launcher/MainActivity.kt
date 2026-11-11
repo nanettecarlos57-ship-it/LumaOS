@@ -302,7 +302,7 @@ class MainActivity : FragmentActivity() {
             .sortedBy { it.label.lowercase(Locale.getDefault()) }
 
         if (homeOrder.isEmpty()) {
-            saveHomeOrder(launcherApps.take(20).map { it.packageName })
+            saveHomeOrder(launcherApps.map { it.packageName })
         } else {
             val valid = homeOrder.filter { token ->
                 token.startsWith("folder:") || launcherApps.any { it.packageName == token }
@@ -311,7 +311,6 @@ class MainActivity : FragmentActivity() {
             val knownApps = valid.filterNot { it.startsWith("folder:") }.toSet() + folderMembers
             val additions = launcherApps.asSequence()
                 .filter { it.packageName !in knownApps }
-                .take((20 - knownApps.size).coerceAtLeast(0))
                 .map { it.packageName }
                 .toList()
             if (valid != homeOrder || additions.isNotEmpty()) saveHomeOrder(valid + additions)
@@ -351,7 +350,6 @@ private fun LumaLauncher(
     onRemoveWidget: (Int) -> Unit
 ) {
     val context = LocalContext.current
-    var showLibrary by remember { mutableStateOf(false) }
     var showControlCenter by remember { mutableStateOf(false) }
     var showLockScreen by remember { mutableStateOf(false) }
     var showNotificationCenter by remember { mutableStateOf(false) }
@@ -458,7 +456,6 @@ private fun LumaLauncher(
         }
     }
     var searchQuery by remember { mutableStateOf("") }
-    var librarySortDescending by remember { mutableStateOf(prefs.getBoolean("library_sort_descending", false)) }
     var clock by remember { mutableStateOf(currentTime()) }
     val wallpaperPalettes = listOf(
         listOf(Color(0xFF26375D), Color(0xFF10182D), Color(0xFF070A12)),
@@ -486,11 +483,8 @@ private fun LumaLauncher(
         }
     }
 
-    BackHandler(enabled = showLibrary || showControlCenter || showLockScreen || showNotificationCenter || showWidgets || showSettings || showCallLogs) {
-        if (showLibrary) {
-            showLibrary = false
-            searchQuery = ""
-        } else if (showControlCenter) {
+    BackHandler(enabled = showControlCenter || showLockScreen || showNotificationCenter || showWidgets || showSettings || showCallLogs) {
+        if (showControlCenter) {
             showControlCenter = false
         } else if (showLockScreen) {
             showLockScreen = false
@@ -512,17 +506,13 @@ private fun LumaLauncher(
         modifier = Modifier
             .fillMaxSize()
             .background(background)
-            .pointerInput(showLibrary, showControlCenter) {
+            .pointerInput(showControlCenter) {
                 var drag = 0f
                 detectVerticalDragGestures(
                     onVerticalDrag = { _, amount -> drag += amount },
                     onDragEnd = {
-                        if (!showLibrary && !showControlCenter && drag < -65f) showLibrary = true
-                        else if (!showLibrary && !showControlCenter && drag > 65f) showControlCenter = true
-                        else if (showLibrary && drag > 65f) {
-                            showLibrary = false
-                            searchQuery = ""
-                        } else if (showControlCenter && drag < -65f) {
+                        if (!showControlCenter && drag > 65f) showControlCenter = true
+                        else if (showControlCenter && drag < -65f) {
                             showControlCenter = false
                         }
                         drag = 0f
@@ -541,7 +531,6 @@ private fun LumaLauncher(
         }
         AnimatedContent(
             targetState = when {
-                showLibrary -> 1
                 showControlCenter -> 2
                 showLockScreen -> 3
                 showNotificationCenter -> 4
@@ -554,25 +543,6 @@ private fun LumaLauncher(
             label = "launcher_pages"
         ) { page ->
             when (page) {
-                1 -> AppLibrary(
-                    apps = apps,
-                    hiddenPackages = hiddenPackages,
-                    onToggleHidden = ::toggleHiddenApp,
-                    favoritePackages = favoritePackages,
-                    onToggleFavorite = ::toggleFavoriteApp,
-                    lockedPackages = lockedPackages,
-                    onToggleAppLock = ::toggleAppLock,
-                    gridColumns = gridColumns,
-                    iconSize = iconSize,
-                    showAppLabels = showAppLabels,
-                    query = searchQuery,
-                    sortDescending = librarySortDescending,
-                    onToggleSort = { librarySortDescending = !librarySortDescending; prefs.edit().putBoolean("library_sort_descending", librarySortDescending).apply() },
-                    badgeCounts = NotificationStore.badgeCounts,
-                    onQueryChange = { searchQuery = it },
-                    onLaunchApp = launchAppWithLock,
-                    onBack = { showLibrary = false; searchQuery = "" }
-                )
                 2 -> ControlCenter(
                     onBack = { showControlCenter = false },
                     onOpenSystemSettings = onOpenSystemSettings
@@ -656,7 +626,6 @@ private fun LumaLauncher(
                     folders = folders,
                     clock = clock,
                     onLaunchApp = launchAppWithLock,
-                    onOpenLibrary = { showLibrary = true },
                     onOpenControlCenter = { showControlCenter = true },
                     onOpenLockScreen = { showLockScreen = true },
                     onOpenNotifications = { showNotificationCenter = true },
@@ -684,7 +653,6 @@ private fun HomeScreen(
     folders: List<AppFolder>,
     clock: String,
     onLaunchApp: (String) -> Unit,
-    onOpenLibrary: () -> Unit,
     onOpenControlCenter: () -> Unit,
     onOpenLockScreen: () -> Unit,
     onOpenNotifications: () -> Unit,
@@ -811,16 +779,11 @@ private fun HomeScreen(
                     .size(48.dp)
                     .clip(RoundedCornerShape(15.dp))
                     .background(Color.White.copy(alpha = 0.15f))
-                    .clickable(onClick = onOpenLibrary),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Rounded.Apps, contentDescription = "App Library", tint = Color.White)
-            }
         }
         Spacer(Modifier.height(12.dp))
         Text(
-            "Swipe up for App Library • Swipe down for Control Center",
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenLibrary),
+            "Swipe down for Control Center • Swipe up to move between home pages",
+            modifier = Modifier.fillMaxWidth(),
             color = Color(0xFFBAC6DE),
             fontSize = 11.sp,
             textAlign = TextAlign.Center
