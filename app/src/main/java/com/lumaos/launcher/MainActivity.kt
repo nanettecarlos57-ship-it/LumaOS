@@ -85,6 +85,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -94,6 +95,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.LocalTextStyle
@@ -300,7 +302,7 @@ class MainActivity : FragmentActivity() {
             .sortedBy { it.label.lowercase(Locale.getDefault()) }
 
         if (homeOrder.isEmpty()) {
-            saveHomeOrder(launcherApps.take(20).map { it.packageName })
+            saveHomeOrder(launcherApps.map { it.packageName })
         } else {
             val valid = homeOrder.filter { token ->
                 token.startsWith("folder:") || launcherApps.any { it.packageName == token }
@@ -309,7 +311,6 @@ class MainActivity : FragmentActivity() {
             val knownApps = valid.filterNot { it.startsWith("folder:") }.toSet() + folderMembers
             val additions = launcherApps.asSequence()
                 .filter { it.packageName !in knownApps }
-                .take((20 - knownApps.size).coerceAtLeast(0))
                 .map { it.packageName }
                 .toList()
             if (valid != homeOrder || additions.isNotEmpty()) saveHomeOrder(valid + additions)
@@ -349,7 +350,6 @@ private fun LumaLauncher(
     onRemoveWidget: (Int) -> Unit
 ) {
     val context = LocalContext.current
-    var showLibrary by remember { mutableStateOf(false) }
     var showControlCenter by remember { mutableStateOf(false) }
     var showLockScreen by remember { mutableStateOf(false) }
     var showNotificationCenter by remember { mutableStateOf(false) }
@@ -366,7 +366,8 @@ private fun LumaLauncher(
     var gridColumns by remember { mutableStateOf(prefs.getInt("grid_columns", 4).coerceIn(3, 5)) }
     var iconSize by remember { mutableStateOf(prefs.getInt("icon_size", 60).coerceIn(48, 76)) }
     var showAppLabels by remember { mutableStateOf(prefs.getBoolean("show_app_labels", true)) }
-    var wallpaperStyle by remember { mutableStateOf(prefs.getInt("wallpaper_style", 0).coerceIn(0, 3)) }
+    var wallpaperStyle by remember { mutableStateOf(prefs.getInt("wallpaper_style", 0).coerceIn(0, 7)) }
+    var fontScale by remember { mutableStateOf(prefs.getFloat("font_scale", 1.0f).coerceIn(0.8f, 1.4f)) }
     var themeStyle by remember { mutableStateOf(prefs.getInt("theme_style", 0).coerceIn(0, 3)) }
     var fontStyle by remember { mutableStateOf(prefs.getInt("font_style", 0).coerceIn(0, 2)) }
     var customWallpaperUri by remember { mutableStateOf(prefs.getString("custom_wallpaper_uri", null)) }
@@ -455,16 +456,24 @@ private fun LumaLauncher(
         }
     }
     var searchQuery by remember { mutableStateOf("") }
-    var librarySortDescending by remember { mutableStateOf(prefs.getBoolean("library_sort_descending", false)) }
     var clock by remember { mutableStateOf(currentTime()) }
-    val wallpaperPalettes = listOf(listOf(Color(0xFF26375D), Color(0xFF10182D), Color(0xFF070A12)), listOf(Color(0xFF4B2C70), Color(0xFF211536), Color(0xFF090711)), listOf(Color(0xFF075B68), Color(0xFF102D42), Color(0xFF070D18)), listOf(Color(0xFF6A3B35), Color(0xFF30202B), Color(0xFF0B0B12)))
+    val wallpaperPalettes = listOf(
+        listOf(Color(0xFF26375D), Color(0xFF10182D), Color(0xFF070A12)),
+        listOf(Color(0xFF4B2C70), Color(0xFF211536), Color(0xFF090711)),
+        listOf(Color(0xFF075B68), Color(0xFF102D42), Color(0xFF070D18)),
+        listOf(Color(0xFF6A3B35), Color(0xFF30202B), Color(0xFF0B0B12)),
+        listOf(Color(0xFF173F38), Color(0xFF102820), Color(0xFF07130F)),
+        listOf(Color(0xFF5A3150), Color(0xFF2D1B34), Color(0xFF100A18)),
+        listOf(Color(0xFF315A83), Color(0xFF1B314E), Color(0xFF090F1D)),
+        listOf(Color(0xFF72512E), Color(0xFF392A22), Color(0xFF140F0B))
+    )
     val themePalettes = listOf(
         listOf(Color(0xFF26375D), Color(0xFF10182D), Color(0xFF070A12)),
         listOf(Color(0xFF101010), Color(0xFF050505), Color.Black),
         listOf(Color(0xFF4B2C70), Color(0xFF211536), Color(0xFF090711)),
         listOf(Color(0xFF075B68), Color(0xFF102D42), Color(0xFF070D18))
     )
-    val background = Brush.verticalGradient(colors = wallpaperPalettes[wallpaperStyle].mapIndexed { index, color -> androidx.compose.ui.graphics.lerp(color, themePalettes[themeStyle][index], 0.45f) })
+    val background = Brush.verticalGradient(colors = wallpaperPalettes[wallpaperStyle].mapIndexed { index, color -> androidx.compose.ui.graphics.lerp(color, themePalettes[themeStyle][index % themePalettes[themeStyle].size], 0.45f) })
     val selectedFont = when (fontStyle) { 1 -> FontFamily.Serif; 2 -> FontFamily.Monospace; else -> FontFamily.Default }
 
     LaunchedEffect(Unit) {
@@ -474,11 +483,8 @@ private fun LumaLauncher(
         }
     }
 
-    BackHandler(enabled = showLibrary || showControlCenter || showLockScreen || showNotificationCenter || showWidgets || showSettings || showCallLogs) {
-        if (showLibrary) {
-            showLibrary = false
-            searchQuery = ""
-        } else if (showControlCenter) {
+    BackHandler(enabled = showControlCenter || showLockScreen || showNotificationCenter || showWidgets || showSettings || showCallLogs) {
+        if (showControlCenter) {
             showControlCenter = false
         } else if (showLockScreen) {
             showLockScreen = false
@@ -493,22 +499,20 @@ private fun LumaLauncher(
         }
     }
 
+    val baseDensity = LocalDensity.current
+    CompositionLocalProvider(LocalDensity provides Density(baseDensity.density, baseDensity.fontScale * fontScale)) {
     CompositionLocalProvider(LocalTextStyle provides LocalTextStyle.current.copy(fontFamily = selectedFont)) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(background)
-            .pointerInput(showLibrary, showControlCenter) {
+            .pointerInput(showControlCenter) {
                 var drag = 0f
                 detectVerticalDragGestures(
                     onVerticalDrag = { _, amount -> drag += amount },
                     onDragEnd = {
-                        if (!showLibrary && !showControlCenter && drag < -65f) showLibrary = true
-                        else if (!showLibrary && !showControlCenter && drag > 65f) showControlCenter = true
-                        else if (showLibrary && drag > 65f) {
-                            showLibrary = false
-                            searchQuery = ""
-                        } else if (showControlCenter && drag < -65f) {
+                        if (!showControlCenter && drag > 65f) showControlCenter = true
+                        else if (showControlCenter && drag < -65f) {
                             showControlCenter = false
                         }
                         drag = 0f
@@ -527,7 +531,6 @@ private fun LumaLauncher(
         }
         AnimatedContent(
             targetState = when {
-                showLibrary -> 1
                 showControlCenter -> 2
                 showLockScreen -> 3
                 showNotificationCenter -> 4
@@ -540,25 +543,6 @@ private fun LumaLauncher(
             label = "launcher_pages"
         ) { page ->
             when (page) {
-                1 -> AppLibrary(
-                    apps = apps,
-                    hiddenPackages = hiddenPackages,
-                    onToggleHidden = ::toggleHiddenApp,
-                    favoritePackages = favoritePackages,
-                    onToggleFavorite = ::toggleFavoriteApp,
-                    lockedPackages = lockedPackages,
-                    onToggleAppLock = ::toggleAppLock,
-                    gridColumns = gridColumns,
-                    iconSize = iconSize,
-                    showAppLabels = showAppLabels,
-                    query = searchQuery,
-                    sortDescending = librarySortDescending,
-                    onToggleSort = { librarySortDescending = !librarySortDescending; prefs.edit().putBoolean("library_sort_descending", librarySortDescending).apply() },
-                    badgeCounts = NotificationStore.badgeCounts,
-                    onQueryChange = { searchQuery = it },
-                    onLaunchApp = launchAppWithLock,
-                    onBack = { showLibrary = false; searchQuery = "" }
-                )
                 2 -> ControlCenter(
                     onBack = { showControlCenter = false },
                     onOpenSystemSettings = onOpenSystemSettings
@@ -567,10 +551,12 @@ private fun LumaLauncher(
                 6 -> LauncherSettingsPage(
                     themeStyle = themeStyle,
                     fontStyle = fontStyle,
+                    fontScale = fontScale,
                     appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0.2.0",
                     versionCode = if (android.os.Build.VERSION.SDK_INT >= 28) context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode else context.packageManager.getPackageInfo(context.packageName, 0).versionCode.toLong(),
                     onThemeStyleChange = { themeStyle = it; prefs.edit().putInt("theme_style", it).apply() },
                     onFontStyleChange = { fontStyle = it; prefs.edit().putInt("font_style", it).apply() },
+                    onFontScaleChange = { fontScale = it; prefs.edit().putFloat("font_scale", it).apply() },
                     onOpenCallLogs = {
                         showSettings = false
                         callLogPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
@@ -640,7 +626,6 @@ private fun LumaLauncher(
                     folders = folders,
                     clock = clock,
                     onLaunchApp = launchAppWithLock,
-                    onOpenLibrary = { showLibrary = true },
                     onOpenControlCenter = { showControlCenter = true },
                     onOpenLockScreen = { showLockScreen = true },
                     onOpenNotifications = { showNotificationCenter = true },
@@ -656,6 +641,7 @@ private fun LumaLauncher(
         }
     }
     }
+    }
 }
 
 @Composable
@@ -667,7 +653,6 @@ private fun HomeScreen(
     folders: List<AppFolder>,
     clock: String,
     onLaunchApp: (String) -> Unit,
-    onOpenLibrary: () -> Unit,
     onOpenControlCenter: () -> Unit,
     onOpenLockScreen: () -> Unit,
     onOpenNotifications: () -> Unit,
@@ -794,16 +779,11 @@ private fun HomeScreen(
                     .size(48.dp)
                     .clip(RoundedCornerShape(15.dp))
                     .background(Color.White.copy(alpha = 0.15f))
-                    .clickable(onClick = onOpenLibrary),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Rounded.Apps, contentDescription = "App Library", tint = Color.White)
-            }
         }
         Spacer(Modifier.height(12.dp))
         Text(
-            "Swipe up for App Library • Swipe down for Control Center",
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenLibrary),
+            "Swipe down for Control Center • Swipe up to move between home pages",
+            modifier = Modifier.fillMaxWidth(),
             color = Color(0xFFBAC6DE),
             fontSize = 11.sp,
             textAlign = TextAlign.Center
@@ -943,10 +923,12 @@ private fun HomeScreen(
 private fun LauncherSettingsPage(
     themeStyle: Int,
     fontStyle: Int,
+    fontScale: Float,
     appVersion: String,
     versionCode: Long,
     onThemeStyleChange: (Int) -> Unit,
     onFontStyleChange: (Int) -> Unit,
+    onFontScaleChange: (Float) -> Unit,
     onOpenCallLogs: () -> Unit,
     onSetDefaultLauncher: () -> Unit,
     onBrowseFiles: () -> Unit,
@@ -1016,6 +998,11 @@ private fun LauncherSettingsPage(
             }
         }
         Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(16.dp)) {
+            Text("Font size", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text("${(fontScale * 100).toInt()}% • Applies across the launcher", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+            androidx.compose.material3.Slider(value = fontScale, onValueChange = onFontScaleChange, valueRange = 0.8f..1.4f, steps = 11)
+        }
+        Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).padding(16.dp)) {
             Text("App grid", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text("Choose how many icons appear in each row.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 12.dp)) {
@@ -1036,7 +1023,7 @@ private fun LauncherSettingsPage(
                 androidx.compose.material3.OutlinedButton(onClick = onPickWallpaper) { Text("Choose photo") }
                 if (hasCustomWallpaper) androidx.compose.material3.TextButton(onClick = onClearWallpaper) { Text("Use gradient") }
             }
-            listOf("Midnight Blue", "Royal Purple", "Ocean Teal", "Warm Sunset").forEachIndexed { index, name ->
+            listOf("Midnight Blue", "Royal Purple", "Ocean Teal", "Warm Sunset", "Forest Green", "Plum Night", "Glacier Blue", "Golden Dusk").forEachIndexed { index, name ->
                 Row(modifier = Modifier.fillMaxWidth().clickable { onWallpaperStyleChange(index) }.padding(vertical = 9.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(name, color = Color.White, fontSize = 14.sp)
                     if (wallpaperStyle == index) Text("Selected", color = Color(0xFFB9C9FF), fontSize = 12.sp)
