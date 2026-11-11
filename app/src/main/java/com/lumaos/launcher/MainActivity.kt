@@ -763,7 +763,7 @@ private fun HomeScreen(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            apps.take(3).forEach { app ->
+            apps.take(4).forEach { app ->
                 Image(
                     bitmap = app.icon,
                     contentDescription = app.label,
@@ -774,11 +774,6 @@ private fun HomeScreen(
                         .clickable { onLaunchApp(app.packageName) }
                 )
             }
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(15.dp))
-                    .background(Color.White.copy(alpha = 0.15f))
         }
         Spacer(Modifier.height(12.dp))
         Text(
