@@ -53,6 +53,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -644,6 +646,7 @@ private fun LumaLauncher(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HomeScreen(
     apps: List<LauncherApp>,
@@ -726,31 +729,60 @@ private fun HomeScreen(
         )
         Spacer(Modifier.height(28.dp))
 
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(gridColumns),
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(bottom = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
-            items(tiles, key = { it.id }) { tile ->
-                if (tile.app != null) {
-                    AppIcon(
-                        app = tile.app,
-                        onClick = { onLaunchApp(tile.app.packageName) },
-                        onLongClick = { selectedTile = tile },
-                        iconSize = iconSize,
-                        showLabel = showAppLabels,
-                        badgeCount = badgeCounts[tile.app.packageName] ?: 0
-                    )
-                } else if (tile.folder != null) {
-                    FolderIcon(
-                        folder = tile.folder,
-                        apps = apps,
-                        onClick = { openFolder = tile.folder },
-                        onLongClick = { selectedTile = tile }
-                    )
+        val pageSize = (gridColumns * 5).coerceAtLeast(1)
+        val pageCount = maxOf(1, (tiles.size + pageSize - 1) / pageSize)
+        val pagerState = rememberPagerState(pageCount = { pageCount })
+
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.weight(1f)
+        ) { page ->
+            val pageTiles = tiles.drop(page * pageSize).take(pageSize)
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(gridColumns),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                items(pageTiles, key = { it.id }) { tile ->
+                    if (tile.app != null) {
+                        AppIcon(
+                            app = tile.app,
+                            onClick = { onLaunchApp(tile.app.packageName) },
+                            onLongClick = { selectedTile = tile },
+                            iconSize = iconSize,
+                            showLabel = showAppLabels,
+                            badgeCount = badgeCounts[tile.app.packageName] ?: 0
+                        )
+                    } else if (tile.folder != null) {
+                        FolderIcon(
+                            folder = tile.folder,
+                            apps = apps,
+                            onClick = { openFolder = tile.folder },
+                            onLongClick = { selectedTile = tile }
+                        )
+                    }
                 }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            repeat(pageCount) { page ->
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .size(if (pagerState.currentPage == page) 7.dp else 6.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (pagerState.currentPage == page) Color.White
+                            else Color.White.copy(alpha = 0.35f)
+                        )
+                )
             }
         }
 
@@ -777,7 +809,7 @@ private fun HomeScreen(
         }
         Spacer(Modifier.height(12.dp))
         Text(
-            "Swipe down for Control Center • Swipe up to move between home pages",
+            "Swipe left or right to change pages • Swipe down for Control Center",
             modifier = Modifier.fillMaxWidth(),
             color = Color(0xFFBAC6DE),
             fontSize = 11.sp,
