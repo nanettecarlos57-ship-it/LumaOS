@@ -4,6 +4,7 @@ import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
 import android.Manifest
+import android.media.AudioManager
 import android.content.pm.PackageManager
 import android.provider.CallLog
 import android.content.Intent
@@ -32,6 +33,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -53,6 +55,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -71,6 +75,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -546,6 +551,7 @@ private fun LumaLauncher(
         ) { page ->
             when (page) {
                 2 -> ControlCenter(
+                    clock = clock,
                     onBack = { showControlCenter = false },
                     onOpenSystemSettings = onOpenSystemSettings
                 )
@@ -1477,84 +1483,277 @@ private fun DynamicIsland(
 }
 @Composable
 private fun ControlCenter(
+    clock: String,
     onBack: () -> Unit,
     onOpenSystemSettings: (String) -> Unit
 ) {
-    val controls = listOf(
-        Triple("Wi-Fi", "📶", "Manage wireless networks") to "wifi",
-        Triple("Bluetooth", "ᛒ", "Manage connected devices") to "bluetooth",
-        Triple("Airplane mode", "✈", "Airplane mode settings") to "airplane",
-        Triple("Location", "⌖", "Location access settings") to "location",
-        Triple("Display", "☼", "Brightness and display settings") to "display",
-        Triple("Sound", "♫", "Sound and vibration settings") to "sound",
-        Triple("Battery", "▰", "Battery and power settings") to "battery",
-        Triple("All settings", "⚙", "Open Android settings") to "settings"
+    val context = LocalContext.current
+    val audioManager = remember(context) {
+        context.getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
+    }
+    val maxMusicVolume = remember(audioManager) {
+        audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+    }
+    var mediaVolume by remember(audioManager) {
+        mutableStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxMusicVolume)
+    }
+    val activityWindow = (context as? android.app.Activity)?.window
+    var brightness by remember(activityWindow) {
+        mutableStateOf(
+            activityWindow?.attributes?.screenBrightness?.takeIf { it in 0f..1f } ?: 0.65f
+        )
+    }
+
+    val primaryControls = listOf(
+        Triple("Wi-Fi", "◉", "Wireless networks") to "wifi",
+        Triple("Bluetooth", "ᛒ", "Connected devices") to "bluetooth",
+        Triple("Airplane mode", "✈", "Flight settings") to "airplane",
+        Triple("Location", "⌖", "Location access") to "location"
+    )
+    val quickControls = listOf(
+        Triple("Display", "☼", "Display settings") to "display",
+        Triple("Sound", "♫", "Sound settings") to "sound",
+        Triple("Battery", "▰", "Power settings") to "battery",
+        Triple("Settings", "⚙", "All device settings") to "settings"
     )
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Control Center", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
-            Text("Done", color = Color(0xFFB9C9FF), modifier = Modifier.clickable(onClick = onBack))
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Quick access to your device controls",
-            color = Color(0xFFD4DCEE),
-            fontSize = 13.sp
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(32.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xE83C4964), Color(0xE81B2438), Color(0xF20A1020))
+                )
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(32.dp))
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(Color.White.copy(alpha = 0.16f), Color.Transparent),
+                        radius = 760f
+                    )
+                )
         )
-        Spacer(Modifier.height(22.dp))
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(bottom = 18.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            items(controls) { item ->
-                val control = item.first
-                ControlTile(
-                    symbol = control.second,
-                    title = control.first,
-                    subtitle = control.third,
-                    onClick = { onOpenSystemSettings(item.second) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Control Centre", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(Date()),
+                        color = Color.White.copy(alpha = 0.72f),
+                        fontSize = 12.sp
+                    )
+                }
+                Text(
+                    "Done",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.16f))
+                        .clickable(onClick = onBack)
+                        .padding(horizontal = 17.dp, vertical = 10.dp)
                 )
             }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFF527BCB).copy(alpha = 0.76f), Color(0xFF31518E).copy(alpha = 0.48f))
+                            )
+                        )
+                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(26.dp))
+                        .padding(15.dp)
+                ) {
+                    Text("TIME", color = Color.White.copy(alpha = 0.68f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text(clock, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Light)
+                    Text("LumaOS", color = Color.White.copy(alpha = 0.78f), fontSize = 10.sp)
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(Color.White.copy(alpha = 0.11f))
+                        .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(26.dp))
+                        .padding(15.dp)
+                ) {
+                    Text("DEVICE", color = Color.White.copy(alpha = 0.68f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text("Quick access", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Tap a control to manage it", color = Color.White.copy(alpha = 0.72f), fontSize = 10.sp)
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                primaryControls.take(2).forEach { item ->
+                    ControlTile(
+                        modifier = Modifier.weight(1f),
+                        symbol = item.first.second,
+                        title = item.first.first,
+                        subtitle = item.first.third,
+                        onClick = { onOpenSystemSettings(item.second) }
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                primaryControls.drop(2).forEach { item ->
+                    ControlTile(
+                        modifier = Modifier.weight(1f),
+                        symbol = item.first.second,
+                        title = item.first.first,
+                        subtitle = item.first.third,
+                        onClick = { onOpenSystemSettings(item.second) }
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(Color.White.copy(alpha = 0.12f))
+                    .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(26.dp))
+                    .padding(16.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("♫", color = Color.White, fontSize = 25.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("Not Playing", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Media controls appear when audio is active", color = Color.White.copy(alpha = 0.68f), fontSize = 10.sp)
+                    }
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Color.White.copy(alpha = 0.19f), Color.White.copy(alpha = 0.08f))
+                        )
+                    )
+                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(26.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Text("Display brightness", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Slider(
+                    value = brightness,
+                    onValueChange = { value ->
+                        brightness = value
+                        activityWindow?.let { window ->
+                            val attributes = window.attributes
+                            attributes.screenBrightness = value
+                            window.attributes = attributes
+                        }
+                    },
+                    colors = androidx.compose.material3.SliderDefaults.colors(
+                        thumbColor = Color.White,
+                        activeTrackColor = Color.White,
+                        inactiveTrackColor = Color.White.copy(alpha = 0.24f)
+                    )
+                )
+                Text("Media volume", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Slider(
+                    value = mediaVolume,
+                    onValueChange = { value ->
+                        mediaVolume = value
+                        val level = (value * maxMusicVolume).toInt().coerceIn(0, maxMusicVolume)
+                        runCatching { audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, level, 0) }
+                    },
+                    colors = androidx.compose.material3.SliderDefaults.colors(
+                        thumbColor = Color.White,
+                        activeTrackColor = Color.White,
+                        inactiveTrackColor = Color.White.copy(alpha = 0.24f)
+                    )
+                )
+                Text(
+                    "Brightness adjusts the LumaOS window; media volume changes the device media stream.",
+                    color = Color.White.copy(alpha = 0.62f),
+                    fontSize = 9.sp
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                quickControls.take(2).forEach { item ->
+                    ControlTile(
+                        modifier = Modifier.weight(1f),
+                        symbol = item.first.second,
+                        title = item.first.first,
+                        subtitle = item.first.third,
+                        onClick = { onOpenSystemSettings(item.second) }
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                quickControls.drop(2).forEach { item ->
+                    ControlTile(
+                        modifier = Modifier.weight(1f),
+                        symbol = item.first.second,
+                        title = item.first.first,
+                        subtitle = item.first.third,
+                        onClick = { onOpenSystemSettings(item.second) }
+                    )
+                }
+            }
+
+            Text(
+                "Android controls protected connectivity features. Their switches open the matching system settings.",
+                color = Color.White.copy(alpha = 0.62f),
+                fontSize = 10.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+            )
         }
-        Text(
-            "Protected switches are managed by Android. Tap a tile to open the matching system settings.",
-            color = Color(0xFFBAC6DE),
-            fontSize = 11.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-        )
     }
 }
 
 @Composable
 private fun ControlTile(
+    modifier: Modifier = Modifier,
     symbol: String,
     title: String,
     subtitle: String,
     onClick: () -> Unit
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .height(118.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .background(Color.White.copy(alpha = 0.14f))
+            .height(94.dp)
+            .clip(RoundedCornerShape(23.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.09f))
+                )
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(23.dp))
             .clickable(onClick = onClick)
-            .padding(14.dp),
+            .padding(13.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(symbol, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Medium)
+        Text(symbol, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Medium)
         Column {
-            Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, color = Color(0xFFD4DCEE), fontSize = 10.sp, maxLines = 1)
+            Text(title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = Color.White.copy(alpha = 0.68f), fontSize = 9.sp, maxLines = 1)
         }
     }
 }
