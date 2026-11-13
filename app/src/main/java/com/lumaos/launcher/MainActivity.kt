@@ -365,7 +365,6 @@ private fun LumaLauncher(
     var showWidgets by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showCallLogs by remember { mutableStateOf(false) }
-    var assistiveTouchEnabled by remember { mutableStateOf(prefs.getBoolean("assistive_touch_enabled", true)) }
     var callLogs by remember { mutableStateOf<List<LumaCall>>(emptyList()) }
     var callLogPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED) }
     val callLogPermissionRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -373,6 +372,7 @@ private fun LumaLauncher(
         if (granted) callLogs = readLumaCallLogs(context)
     }
     val prefs = remember { context.getSharedPreferences("luma_preferences", android.content.Context.MODE_PRIVATE) }
+    var assistiveTouchEnabled by remember { mutableStateOf(prefs.getBoolean("assistive_touch_enabled", true)) }
     var gridColumns by remember { mutableStateOf(prefs.getInt("grid_columns", 4).coerceIn(3, 5)) }
     var iconSize by remember { mutableStateOf(prefs.getInt("icon_size", 60).coerceIn(48, 76)) }
     var showAppLabels by remember { mutableStateOf(prefs.getBoolean("show_app_labels", true)) }
