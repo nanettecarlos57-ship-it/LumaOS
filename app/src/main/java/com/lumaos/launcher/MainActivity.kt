@@ -36,9 +36,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -363,6 +365,7 @@ private fun LumaLauncher(
     var showWidgets by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showCallLogs by remember { mutableStateOf(false) }
+    var assistiveTouchEnabled by remember { mutableStateOf(prefs.getBoolean("assistive_touch_enabled", true)) }
     var callLogs by remember { mutableStateOf<List<LumaCall>>(emptyList()) }
     var callLogPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED) }
     val callLogPermissionRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -560,6 +563,7 @@ private fun LumaLauncher(
                     themeStyle = themeStyle,
                     fontStyle = fontStyle,
                     fontScale = fontScale,
+                    assistiveTouchEnabled = assistiveTouchEnabled,
                     appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0.2.0",
                     versionCode = if (android.os.Build.VERSION.SDK_INT >= 28) context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode else context.packageManager.getPackageInfo(context.packageName, 0).versionCode.toLong(),
                     onThemeStyleChange = { themeStyle = it; prefs.edit().putInt("theme_style", it).apply() },
@@ -584,6 +588,7 @@ private fun LumaLauncher(
                     onGridColumnsChange = { gridColumns = it; prefs.edit().putInt("grid_columns", it).apply() },
                     onIconSizeChange = { iconSize = it; prefs.edit().putInt("icon_size", it).apply() },
                     onShowLabelsChange = { showAppLabels = it; prefs.edit().putBoolean("show_app_labels", it).apply() },
+                    onAssistiveTouchChange = { assistiveTouchEnabled = it; prefs.edit().putBoolean("assistive_touch_enabled", it).apply() },
                     onBack = { showSettings = false }
                 )
                 7 -> CallLogsPage(
@@ -642,6 +647,7 @@ private fun LumaLauncher(
                     gridColumns = gridColumns,
                     iconSize = iconSize,
                     showAppLabels = showAppLabels,
+                    assistiveTouchEnabled = assistiveTouchEnabled,
                     onSaveLayout = onSaveLayout,
                     onSaveFolders = onSaveFolders
                 )
@@ -670,6 +676,7 @@ private fun HomeScreen(
     gridColumns: Int,
     iconSize: Int,
     showAppLabels: Boolean,
+    assistiveTouchEnabled: Boolean,
     onSaveLayout: (List<String>) -> Unit,
     onSaveFolders: (List<AppFolder>) -> Unit
 ) {
@@ -707,7 +714,12 @@ private fun HomeScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val dragDensity = LocalDensity.current.density
+        var assistiveOffsetX by remember { mutableStateOf(0f) }
+        var assistiveOffsetY by remember { mutableStateOf(0f) }
+        var assistiveTouchOpen by remember { mutableStateOf(false) }
+        Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -821,6 +833,68 @@ private fun HomeScreen(
             fontSize = 11.sp,
             textAlign = TextAlign.Center
         )
+        }
+
+        if (assistiveTouchOpen && assistiveTouchEnabled) {
+            Box(
+                modifier = Modifier.fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.34f))
+                    .clickable { assistiveTouchOpen = false }
+            )
+            Column(
+                modifier = Modifier.align(Alignment.Center)
+                    .width(276.dp)
+                    .clip(RoundedCornerShape(30.dp))
+                    .background(Brush.linearGradient(listOf(Color(0xE82A3040), Color(0xD9151A27))))
+                    .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(30.dp))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("AssistiveTouch", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Done", color = Color(0xFFB9C9FF), fontSize = 12.sp, modifier = Modifier.clickable { assistiveTouchOpen = false })
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AssistiveTouchAction(Modifier.weight(1f), "⌂", "Home") { assistiveTouchOpen = false }
+                    AssistiveTouchAction(Modifier.weight(1f), "◉", "Control Centre") { assistiveTouchOpen = false; onOpenControlCenter() }
+                    AssistiveTouchAction(Modifier.weight(1f), "▤", "Notifications") { assistiveTouchOpen = false; onOpenNotifications() }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AssistiveTouchAction(Modifier.weight(1f), "◐", "Lock Screen") { assistiveTouchOpen = false; onOpenLockScreen() }
+                    AssistiveTouchAction(Modifier.weight(1f), "▦", "Widgets") { assistiveTouchOpen = false; onOpenWidgets() }
+                    AssistiveTouchAction(Modifier.weight(1f), "⚙", "Settings") { assistiveTouchOpen = false; onOpenSettings() }
+                }
+                Text("Quick access within LumaOS", color = Color.White.copy(alpha = 0.58f), fontSize = 10.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+            }
+        }
+
+        if (assistiveTouchEnabled) {
+            Box(
+                modifier = Modifier.align(Alignment.BottomEnd)
+                    .offset(x = assistiveOffsetX.dp, y = assistiveOffsetY.dp)
+                    .padding(end = 4.dp, bottom = 88.dp)
+                    .size(54.dp)
+                    .shadow(12.dp, CircleShape)
+                    .clip(CircleShape)
+                    .background(Color(0xFF6E7788).copy(alpha = 0.78f))
+                    .border(1.dp, Color.White.copy(alpha = 0.58f), CircleShape)
+                    .pointerInput(maxWidth, maxHeight) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            val maxX = (maxWidth.value - 60f).coerceAtLeast(0f)
+                            val maxY = (maxHeight.value - 150f).coerceAtLeast(0f)
+                            assistiveOffsetX = (assistiveOffsetX + dragAmount.x / dragDensity).coerceIn(-maxX, 0f)
+                            assistiveOffsetY = (assistiveOffsetY + dragAmount.y / dragDensity).coerceIn(-maxY, 0f)
+                        }
+                    }
+                    .clickable { assistiveTouchOpen = true },
+                contentAlignment = Alignment.Center
+            ) {
+                Box(modifier = Modifier.size(25.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.20f)).border(1.dp, Color.White.copy(alpha = 0.72f), CircleShape), contentAlignment = Alignment.Center) {
+                    Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(Color.White))
+                }
+            }
+        }
     }
 
     selectedTile?.let { tile ->
@@ -953,10 +1027,33 @@ private fun HomeScreen(
 
 
 @Composable
+private fun AssistiveTouchAction(
+    modifier: Modifier = Modifier,
+    symbol: String,
+    label: String,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier.clip(RoundedCornerShape(18.dp)).clickable(onClick = onClick).padding(vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier.size(42.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(symbol, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Light)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(label, color = Color.White.copy(alpha = 0.88f), fontSize = 9.sp, maxLines = 1, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
 private fun LauncherSettingsPage(
     themeStyle: Int,
     fontStyle: Int,
     fontScale: Float,
+    assistiveTouchEnabled: Boolean,
     appVersion: String,
     versionCode: Long,
     onThemeStyleChange: (Int) -> Unit,
@@ -976,6 +1073,7 @@ private fun LauncherSettingsPage(
     onGridColumnsChange: (Int) -> Unit,
     onIconSizeChange: (Int) -> Unit,
     onShowLabelsChange: (Boolean) -> Unit,
+    onAssistiveTouchChange: (Boolean) -> Unit,
     onBack: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -1069,6 +1167,13 @@ private fun LauncherSettingsPage(
                 Text("Display or hide labels below app icons.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
             }
             androidx.compose.material3.Switch(checked = showAppLabels, onCheckedChange = onShowLabelsChange)
+        }
+        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).clickable { onAssistiveTouchChange(!assistiveTouchEnabled) }.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("AssistiveTouch", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text("Show a movable quick-access button on the LumaOS home screen.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+            }
+            androidx.compose.material3.Switch(checked = assistiveTouchEnabled, onCheckedChange = onAssistiveTouchChange)
         }
     }
 }
