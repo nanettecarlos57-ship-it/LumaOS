@@ -143,9 +143,13 @@ class MainActivity : FragmentActivity() {
     private val appWidgetHost by lazy { AppWidgetHost(this, 1024) }
     private val appWidgetManager by lazy { AppWidgetManager.getInstance(this) }
     private var widgetIds by mutableStateOf<List<Int>>(emptyList())
+    private var assistiveTouchEnabled by mutableStateOf(false)
+    private var pendingOverlayAction by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        assistiveTouchEnabled = getSharedPreferences("luma_preferences", MODE_PRIVATE).getBoolean("assistive_touch_enabled", false)
+        pendingOverlayAction = intent?.getStringExtra(EXTRA_ASSISTIVE_ACTION)
         loadHomeLayout()
         widgetIds = getSharedPreferences("luma_widgets", MODE_PRIVATE).getString("ids", "")!!
             .split(",").mapNotNull { it.toIntOrNull() }
@@ -170,10 +174,20 @@ class MainActivity : FragmentActivity() {
                     widgetHost = appWidgetHost,
                     widgetManager = appWidgetManager,
                     onAddWidget = ::pickWidget,
-                    onRemoveWidget = ::removeWidget
+                    onRemoveWidget = ::removeWidget,
+                    assistiveTouchEnabled = assistiveTouchEnabled,
+                    onAssistiveTouchChange = ::setAssistiveTouchEnabled,
+                    overlayAction = pendingOverlayAction,
+                    onOverlayActionHandled = { pendingOverlayAction = null }
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingOverlayAction = intent.getStringExtra(EXTRA_ASSISTIVE_ACTION)
     }
 
     override fun onStart() {
@@ -230,6 +244,56 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         refreshInstalledApps()
+        syncAssistiveTouchOverlay()
+    }
+
+    private fun setAssistiveTouchEnabled(enabled: Boolean) {
+        val prefs = getSharedPreferences("luma_preferences", MODE_PRIVATE)
+        if (enabled && !Settings.canDrawOverlays(this)) {
+            prefs.edit().putBoolean("assistive_touch_permission_pending", true).apply()
+            val permissionIntent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivity(permissionIntent)
+            Toast.makeText(this, "Allow LumaOS to display over other apps, then return here.", Toast.LENGTH_LONG).show()
+            return
+        }
+        prefs.edit()
+            .putBoolean("assistive_touch_permission_pending", false)
+            .putBoolean("assistive_touch_enabled", enabled)
+            .apply()
+        assistiveTouchEnabled = enabled
+        if (enabled) {
+            ContextCompat.startForegroundService(this, Intent(this, AssistiveTouchOverlayService::class.java))
+        } else {
+            stopService(Intent(this, AssistiveTouchOverlayService::class.java))
+        }
+    }
+
+    private fun syncAssistiveTouchOverlay() {
+        val prefs = getSharedPreferences("luma_preferences", MODE_PRIVATE)
+        if (prefs.getBoolean("assistive_touch_permission_pending", false)) {
+            val granted = Settings.canDrawOverlays(this)
+            prefs.edit()
+                .putBoolean("assistive_touch_permission_pending", false)
+                .putBoolean("assistive_touch_enabled", granted)
+                .apply()
+            assistiveTouchEnabled = granted
+            if (!granted) Toast.makeText(this, "AssistiveTouch was not enabled because overlay permission was not granted.", Toast.LENGTH_LONG).show()
+        }
+        val enabled = prefs.getBoolean("assistive_touch_enabled", false)
+        if (enabled && Settings.canDrawOverlays(this)) {
+            assistiveTouchEnabled = true
+            ContextCompat.startForegroundService(this, Intent(this, AssistiveTouchOverlayService::class.java))
+        } else {
+            if (enabled) {
+                prefs.edit().putBoolean("assistive_touch_enabled", false).apply()
+                assistiveTouchEnabled = false
+                Toast.makeText(this, "AssistiveTouch permission was removed. Enable it again in Settings.", Toast.LENGTH_LONG).show()
+            }
+            stopService(Intent(this, AssistiveTouchOverlayService::class.java))
+        }
     }
 
     private fun loadHomeLayout() {
@@ -272,6 +336,7 @@ class MainActivity : FragmentActivity() {
     }
 
     companion object {
+        const val EXTRA_ASSISTIVE_ACTION = "com.lumaos.launcher.extra.ASSISTIVE_ACTION"
         private const val REQUEST_WIDGET_PICK = 4101
         private const val REQUEST_WIDGET_CONFIGURE = 4102
     }
@@ -356,7 +421,11 @@ private fun LumaLauncher(
     widgetHost: AppWidgetHost,
     widgetManager: AppWidgetManager,
     onAddWidget: () -> Unit,
-    onRemoveWidget: (Int) -> Unit
+    onRemoveWidget: (Int) -> Unit,
+    assistiveTouchEnabled: Boolean,
+    onAssistiveTouchChange: (Boolean) -> Unit,
+    overlayAction: String?,
+    onOverlayActionHandled: () -> Unit
 ) {
     val context = LocalContext.current
     var showControlCenter by remember { mutableStateOf(false) }
@@ -372,7 +441,16 @@ private fun LumaLauncher(
         if (granted) callLogs = readLumaCallLogs(context)
     }
     val prefs = remember { context.getSharedPreferences("luma_preferences", android.content.Context.MODE_PRIVATE) }
-    var assistiveTouchEnabled by remember { mutableStateOf(prefs.getBoolean("assistive_touch_enabled", true)) }
+    LaunchedEffect(overlayAction) {
+        val action = overlayAction ?: return@LaunchedEffect
+        showControlCenter = action == "control_center"
+        showLockScreen = action == "lock_screen"
+        showNotificationCenter = action == "notifications"
+        showWidgets = action == "widgets"
+        showSettings = action == "settings"
+        showCallLogs = false
+        onOverlayActionHandled()
+    }
     var gridColumns by remember { mutableStateOf(prefs.getInt("grid_columns", 4).coerceIn(3, 5)) }
     var iconSize by remember { mutableStateOf(prefs.getInt("icon_size", 60).coerceIn(48, 76)) }
     var showAppLabels by remember { mutableStateOf(prefs.getBoolean("show_app_labels", true)) }
@@ -588,7 +666,7 @@ private fun LumaLauncher(
                     onGridColumnsChange = { gridColumns = it; prefs.edit().putInt("grid_columns", it).apply() },
                     onIconSizeChange = { iconSize = it; prefs.edit().putInt("icon_size", it).apply() },
                     onShowLabelsChange = { showAppLabels = it; prefs.edit().putBoolean("show_app_labels", it).apply() },
-                    onAssistiveTouchChange = { assistiveTouchEnabled = it; prefs.edit().putBoolean("assistive_touch_enabled", it).apply() },
+                    onAssistiveTouchChange = onAssistiveTouchChange,
                     onBack = { showSettings = false }
                 )
                 7 -> CallLogsPage(
@@ -647,7 +725,6 @@ private fun LumaLauncher(
                     gridColumns = gridColumns,
                     iconSize = iconSize,
                     showAppLabels = showAppLabels,
-                    assistiveTouchEnabled = assistiveTouchEnabled,
                     onSaveLayout = onSaveLayout,
                     onSaveFolders = onSaveFolders
                 )
@@ -676,7 +753,6 @@ private fun HomeScreen(
     gridColumns: Int,
     iconSize: Int,
     showAppLabels: Boolean,
-    assistiveTouchEnabled: Boolean,
     onSaveLayout: (List<String>) -> Unit,
     onSaveFolders: (List<AppFolder>) -> Unit
 ) {
@@ -714,11 +790,7 @@ private fun HomeScreen(
         }
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val dragDensity = LocalDensity.current.density
-        var assistiveOffsetX by remember { mutableStateOf(0f) }
-        var assistiveOffsetY by remember { mutableStateOf(0f) }
-        var assistiveTouchOpen by remember { mutableStateOf(false) }
+    Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -835,66 +907,6 @@ private fun HomeScreen(
         )
         }
 
-        if (assistiveTouchOpen && assistiveTouchEnabled) {
-            Box(
-                modifier = Modifier.fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.34f))
-                    .clickable { assistiveTouchOpen = false }
-            )
-            Column(
-                modifier = Modifier.align(Alignment.Center)
-                    .width(276.dp)
-                    .clip(RoundedCornerShape(30.dp))
-                    .background(Brush.linearGradient(listOf(Color(0xE82A3040), Color(0xD9151A27))))
-                    .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(30.dp))
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("AssistiveTouch", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Done", color = Color(0xFFB9C9FF), fontSize = 12.sp, modifier = Modifier.clickable { assistiveTouchOpen = false })
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AssistiveTouchAction(Modifier.weight(1f), "⌂", "Home") { assistiveTouchOpen = false }
-                    AssistiveTouchAction(Modifier.weight(1f), "◉", "Control Centre") { assistiveTouchOpen = false; onOpenControlCenter() }
-                    AssistiveTouchAction(Modifier.weight(1f), "▤", "Notifications") { assistiveTouchOpen = false; onOpenNotifications() }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AssistiveTouchAction(Modifier.weight(1f), "◐", "Lock Screen") { assistiveTouchOpen = false; onOpenLockScreen() }
-                    AssistiveTouchAction(Modifier.weight(1f), "▦", "Widgets") { assistiveTouchOpen = false; onOpenWidgets() }
-                    AssistiveTouchAction(Modifier.weight(1f), "⚙", "Settings") { assistiveTouchOpen = false; onOpenSettings() }
-                }
-                Text("Quick access within LumaOS", color = Color.White.copy(alpha = 0.58f), fontSize = 10.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-            }
-        }
-
-        if (assistiveTouchEnabled) {
-            Box(
-                modifier = Modifier.align(Alignment.BottomEnd)
-                    .offset(x = assistiveOffsetX.dp, y = assistiveOffsetY.dp)
-                    .padding(end = 4.dp, bottom = 88.dp)
-                    .size(54.dp)
-                    .shadow(12.dp, CircleShape)
-                    .clip(CircleShape)
-                    .background(Color(0xFF6E7788).copy(alpha = 0.78f))
-                    .border(1.dp, Color.White.copy(alpha = 0.58f), CircleShape)
-                    .pointerInput(maxWidth, maxHeight) {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            val maxX = (maxWidth.value - 60f).coerceAtLeast(0f)
-                            val maxY = (maxHeight.value - 150f).coerceAtLeast(0f)
-                            assistiveOffsetX = (assistiveOffsetX + dragAmount.x / dragDensity).coerceIn(-maxX, 0f)
-                            assistiveOffsetY = (assistiveOffsetY + dragAmount.y / dragDensity).coerceIn(-maxY, 0f)
-                        }
-                    }
-                    .clickable { assistiveTouchOpen = true },
-                contentAlignment = Alignment.Center
-            ) {
-                Box(modifier = Modifier.size(25.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.20f)).border(1.dp, Color.White.copy(alpha = 0.72f), CircleShape), contentAlignment = Alignment.Center) {
-                    Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(Color.White))
-                }
-            }
-        }
     }
 
     selectedTile?.let { tile ->
@@ -1171,7 +1183,7 @@ private fun LauncherSettingsPage(
         Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.12f)).clickable { onAssistiveTouchChange(!assistiveTouchEnabled) }.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("AssistiveTouch", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                Text("Show a movable quick-access button on the LumaOS home screen.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
+                Text("Show a floating quick-access button above other apps. Requires Android display-over-other-apps permission.", color = Color(0xFFD4DCEE), fontSize = 12.sp)
             }
             androidx.compose.material3.Switch(checked = assistiveTouchEnabled, onCheckedChange = onAssistiveTouchChange)
         }
