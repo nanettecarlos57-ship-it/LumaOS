@@ -175,7 +175,7 @@ class MainActivity : FragmentActivity() {
                     onAddWidget = ::pickWidget,
                     onRemoveWidget = ::removeWidget,
                     assistiveTouchEnabled = assistiveTouchEnabled,
-                    onAssistiveTouchChange = ::setAssistiveTouchEnabled,
+                    onAssistiveTouchChange = ::applyAssistiveTouchEnabled,
                     overlayAction = pendingOverlayAction,
                     onOverlayActionHandled = { pendingOverlayAction = null }
                 )
@@ -246,7 +246,7 @@ class MainActivity : FragmentActivity() {
         syncAssistiveTouchOverlay()
     }
 
-    private fun setAssistiveTouchEnabled(enabled: Boolean) {
+    private fun applyAssistiveTouchEnabled(enabled: Boolean) {
         val prefs = getSharedPreferences("luma_preferences", MODE_PRIVATE)
         if (enabled && !Settings.canDrawOverlays(this)) {
             prefs.edit().putBoolean("assistive_touch_permission_pending", true).apply()
