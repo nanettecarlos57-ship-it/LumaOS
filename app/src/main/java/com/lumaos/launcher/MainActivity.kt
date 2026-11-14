@@ -36,7 +36,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -1037,28 +1036,6 @@ private fun HomeScreen(
 
 
 
-
-@Composable
-private fun AssistiveTouchAction(
-    modifier: Modifier = Modifier,
-    symbol: String,
-    label: String,
-    onClick: () -> Unit
-) {
-    Column(
-        modifier = modifier.clip(RoundedCornerShape(18.dp)).clickable(onClick = onClick).padding(vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            modifier = Modifier.size(42.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(symbol, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Light)
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(label, color = Color.White.copy(alpha = 0.88f), fontSize = 9.sp, maxLines = 1, textAlign = TextAlign.Center)
-    }
-}
 
 @Composable
 private fun LauncherSettingsPage(
