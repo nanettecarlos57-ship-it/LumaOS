@@ -194,7 +194,6 @@ public class NationFCBootstrap : MonoBehaviour
         player.transform.position = position;
         player.transform.localScale = new Vector3(0.85f, 1f, 0.85f);
         player.GetComponent<Renderer>().material = kit;
-        player.AddComponent<Rigidbody>().isKinematic = true;
         return player;
     }
 
@@ -267,11 +266,7 @@ public class NationFCBootstrap : MonoBehaviour
         if (GUI.RepeatButton(new Rect(right - button - 10, bottom, button, button), "SPRINT")) NationFCPlayerController.sprinting = true;
 
         // Reset transient button flags after all controls have been evaluated.
-        NationFCPlayerController.moveForward = false;
-        NationFCPlayerController.moveBack = false;
-        NationFCPlayerController.moveLeft = false;
-        NationFCPlayerController.moveRight = false;
-        NationFCPlayerController.sprinting = false;
+        // Touch flags are consumed and reset in Update, not during GUI repaint.
     }
 }
 
@@ -324,6 +319,7 @@ public class NationFCPlayerController : MonoBehaviour
         Vector3 movement = direction * speed;
         movement.y = verticalVelocity;
         controller.Move(movement * Time.deltaTime);
+        moveForward = moveBack = moveLeft = moveRight = sprinting = false;
     }
 
     public void TryPass() { Kick(8f, 0.35f); }
