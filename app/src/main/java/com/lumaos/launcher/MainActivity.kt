@@ -635,7 +635,22 @@ private fun LumaLauncher(
                     onBack = { showControlCenter = false },
                     onOpenSystemSettings = onOpenSystemSettings
                 )
-                3 -> LockScreenPreview(clock = clock, onBack = { showLockScreen = false })
+                3 -> LockScreenPreview(
+                    clock = clock,
+                    notifications = NotificationStore.notifications,
+                    onOpenControlCenter = {
+                        showLockScreen = false
+                        showControlCenter = true
+                    },
+                    onOpenCamera = {
+                        runCatching {
+                            context.startActivity(Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE))
+                        }.onFailure {
+                            Toast.makeText(context, "No camera app is available.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onBack = { showLockScreen = false }
+                )
                 6 -> LauncherSettingsPage(
                     themeStyle = themeStyle,
                     fontStyle = fontStyle,
@@ -1496,45 +1511,206 @@ private fun NotificationCenter(
 }
 
 @Composable
-private fun LockScreenPreview(clock: String, onBack: () -> Unit) {
-    val date = SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(Date())
-    Box(
+private fun LockScreenPreview(
+    clock: String,
+    notifications: List<LumaNotification>,
+    onOpenControlCenter: () -> Unit,
+    onOpenCamera: () -> Unit,
+    onBack: () -> Unit
+) {
+    val now = Date()
+    val date = SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(now)
+    val dayNumber = SimpleDateFormat("d", Locale.getDefault()).format(now)
+    val month = SimpleDateFormat("MMM", Locale.getDefault()).format(now).uppercase(Locale.getDefault())
+
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(34.dp))
             .background(
                 Brush.verticalGradient(
-                    listOf(Color(0xFF536A91), Color(0xFF182641), Color(0xFF080D19))
+                    listOf(
+                        Color.Black.copy(alpha = 0.10f),
+                        Color(0xFF07101F).copy(alpha = 0.24f),
+                        Color.Black.copy(alpha = 0.64f)
+                    )
                 )
             )
-            .clickable(onClick = onBack)
-            .padding(horizontal = 24.dp, vertical = 34.dp),
-        contentAlignment = Alignment.Center
+            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(34.dp))
+            .padding(horizontal = 22.dp, vertical = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(date, color = Color.White.copy(alpha = 0.9f), fontSize = 16.sp)
-            Spacer(Modifier.height(8.dp))
-            Text(clock, color = Color.White, fontSize = 76.sp, fontWeight = FontWeight.ExtraLight)
-            Spacer(Modifier.height(30.dp))
-            Box(
-                modifier = Modifier
-                    .size(74.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.13f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("L", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Light)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("LUMAOS", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text("LOCK SCREEN PREVIEW", color = Color.White.copy(alpha = 0.68f), fontSize = 9.sp, letterSpacing = 1.2.sp)
             }
-            Spacer(Modifier.height(18.dp))
-            Text("LumaOS", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-            Text("Your Android. A New Experience.", color = Color(0xFFD7E1F5), fontSize = 11.sp)
+            Text(
+                "Done",
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.White.copy(alpha = 0.15f))
+                    .clickable(onClick = onBack)
+                    .padding(horizontal = 15.dp, vertical = 8.dp)
+            )
         }
+
+        Spacer(Modifier.height(34.dp))
+        Text(date, color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Medium)
         Text(
-            "Preview only • Tap anywhere to return",
-            color = Color.White.copy(alpha = 0.75f),
-            fontSize = 11.sp,
-            modifier = Modifier.align(Alignment.BottomCenter)
+            clock,
+            color = Color.White,
+            fontSize = 82.sp,
+            lineHeight = 86.sp,
+            fontWeight = FontWeight.ExtraLight,
+            textAlign = TextAlign.Center
         )
+        Spacer(Modifier.height(18.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            LockScreenWidget(
+                title = "CALENDAR",
+                value = dayNumber,
+                subtitle = month,
+                modifier = Modifier.weight(1f)
+            )
+            LockScreenWidget(
+                title = "NOTIFICATIONS",
+                value = notifications.size.toString(),
+                subtitle = if (notifications.size == 1) "Recent alert" else "Recent alerts",
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+        if (notifications.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(Color.White.copy(alpha = 0.14f))
+                    .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(22.dp))
+                    .padding(16.dp)
+            ) {
+                Text("NOTIFICATIONS", color = Color.White.copy(alpha = 0.72f), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+                Spacer(Modifier.height(6.dp))
+                Text("No recent notifications", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text("Your alerts will appear here when notification access is enabled.", color = Color.White.copy(alpha = 0.72f), fontSize = 11.sp)
+            }
+        } else {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                notifications.take(2).forEach { item ->
+                    LockScreenNotification(item)
+                }
+            }
+        }
+
+        Spacer(Modifier.weight(1f))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            LockScreenShortcut(symbol = "☼", label = "Control Centre", onClick = onOpenControlCenter)
+            LockScreenShortcut(symbol = "◉", label = "Camera", onClick = onOpenCamera)
+        }
+        Spacer(Modifier.height(14.dp))
+        Box(
+            modifier = Modifier
+                .width(104.dp)
+                .height(4.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.78f))
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Preview only · Android secure lock screen is unchanged",
+            color = Color.White.copy(alpha = 0.62f),
+            fontSize = 9.sp,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun LockScreenWidget(
+    title: String,
+    value: String,
+    subtitle: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.15f))
+            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(20.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        Text(title, color = Color.White.copy(alpha = 0.72f), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+        Spacer(Modifier.height(4.dp))
+        Text(value, color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Light)
+        Text(subtitle, color = Color.White.copy(alpha = 0.78f), fontSize = 10.sp)
+    }
+}
+
+@Composable
+private fun LockScreenNotification(item: LumaNotification) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.15f))
+            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(20.dp))
+            .padding(horizontal = 14.dp, vertical = 11.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(item.appName, color = Color.White.copy(alpha = 0.82f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Text(item.time, color = Color.White.copy(alpha = 0.65f), fontSize = 9.sp)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(item.title.ifBlank { "Notification" }, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        if (item.message.isNotBlank()) {
+            Spacer(Modifier.height(2.dp))
+            Text(item.message, color = Color.White.copy(alpha = 0.82f), fontSize = 11.sp, maxLines = 2)
+        }
+    }
+}
+
+@Composable
+private fun LockScreenShortcut(symbol: String, label: String, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.18f))
+                .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(symbol, color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Light)
+        }
+        Text(label, color = Color.White.copy(alpha = 0.86f), fontSize = 10.sp)
     }
 }
 
