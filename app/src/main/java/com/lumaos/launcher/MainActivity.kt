@@ -55,6 +55,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -735,6 +736,9 @@ private fun LumaLauncher(
                     onOpenLockScreen = { showLockScreen = true },
                     onOpenNotifications = { showNotificationCenter = true },
                     onOpenWidgets = { showWidgets = true },
+                    widgetIds = widgetIds,
+                    widgetHost = widgetHost,
+                    widgetManager = widgetManager,
                     onOpenSettings = { showSettings = true },
                     gridColumns = gridColumns,
                     iconSize = iconSize,
@@ -763,6 +767,9 @@ private fun HomeScreen(
     onOpenLockScreen: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenWidgets: () -> Unit,
+    widgetIds: List<Int>,
+    widgetHost: AppWidgetHost,
+    widgetManager: AppWidgetManager,
     onOpenSettings: () -> Unit,
     gridColumns: Int,
     iconSize: Int,
@@ -831,7 +838,14 @@ private fun HomeScreen(
             color = Color(0xFFD4DCEE),
             fontSize = 14.sp
         )
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(14.dp))
+        HomeWidgetStrip(
+            widgetIds = widgetIds,
+            host = widgetHost,
+            manager = widgetManager,
+            onOpenWidgets = onOpenWidgets
+        )
+        Spacer(Modifier.height(14.dp))
 
         val pageSize = (gridColumns * 5).coerceAtLeast(1)
         val pageCount = maxOf(1, (tiles.size + pageSize - 1) / pageSize)
@@ -1255,6 +1269,69 @@ private fun readLumaCallLogs(context: android.content.Context): List<LumaCall> {
         }
     }
     return result
+}
+
+@Composable
+private fun HomeWidgetStrip(
+    widgetIds: List<Int>,
+    host: AppWidgetHost,
+    manager: AppWidgetManager,
+    onOpenWidgets: () -> Unit
+) {
+    if (widgetIds.isEmpty()) {
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color.White.copy(alpha = 0.11f))
+                .clickable(onClick = onOpenWidgets)
+                .padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Add Home Screen Widgets", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text("Clock, calendar, weather and more", color = Color(0xFFD4DCEE), fontSize = 11.sp)
+            }
+            Text("＋", color = Color.White, fontSize = 25.sp)
+        }
+    } else {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            widgetIds.forEach { id ->
+                val info = manager.getAppWidgetInfo(id)
+                if (info != null) {
+                    Column(
+                        modifier = Modifier.width(260.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(Color.White.copy(alpha = 0.10f))
+                            .padding(8.dp)
+                    ) {
+                        AndroidView(
+                            factory = { context ->
+                                host.createView(context, id, info).apply { setAppWidget(id, info) }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                                .height(info.minHeight.coerceIn(120, 210).dp)
+                        )
+                    }
+                }
+            }
+            Column(
+                modifier = Modifier.width(82.dp).height(82.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color.White.copy(alpha = 0.11f))
+                    .clickable(onClick = onOpenWidgets)
+                    .padding(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("＋", color = Color.White, fontSize = 24.sp)
+                Text("Edit", color = Color(0xFFD4DCEE), fontSize = 11.sp)
+            }
+        }
+    }
 }
 
 @Composable
